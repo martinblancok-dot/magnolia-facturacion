@@ -131,7 +131,7 @@ export async function conciliarUsuario(db: SupabaseClient, usuarioId: string, pu
   const hasta = new Date(Date.parse(`${maxDia}T12:00:00Z`) + DIAS_DESPUES * 86400_000).toISOString().slice(0, 10);
 
   let q = db.from("comprobantes_arca").select("id, fecha, importe, punto_venta, numero_desde")
-    .eq("usuario_id", usuarioId).in("tipo", [11, 15, 211]).gte("fecha", minDia).lte("fecha", hasta).limit(10000);
+    .eq("usuario_id", usuarioId).gt("importe", 0).gte("fecha", minDia).lte("fecha", hasta).limit(10000);
   if (puntoVentaSistema) q = q.neq("punto_venta", puntoVentaSistema); // las del sistema no son "a mano"
   const comprobantes = ok(await q) ?? [];
   if (comprobantes.length === 0) return 0;
@@ -183,7 +183,7 @@ export async function posiblesDuplicados(db: SupabaseClient, usuarioId: string, 
   const maxDia = reales.reduce((m, c) => (c.dia > m ? c.dia : m), reales[0].dia);
   const hasta = new Date(Date.parse(`${maxDia}T12:00:00Z`) + DIAS_DESPUES * 86400_000).toISOString().slice(0, 10);
   let q = db.from("comprobantes_arca").select("id, fecha, importe, punto_venta, numero_desde")
-    .eq("usuario_id", usuarioId).in("tipo", [11, 15, 211]).gte("fecha", minDia).lte("fecha", hasta).limit(10000);
+    .eq("usuario_id", usuarioId).gt("importe", 0).gte("fecha", minDia).lte("fecha", hasta).limit(10000);
   if (puntoVentaSistema) q = q.neq("punto_venta", puntoVentaSistema);
   const manos = ok(await q) ?? [];
   const pares = conciliar(

@@ -50,3 +50,11 @@ describe("períodos de recategorización", () => {
     expect(ultimos12(movs, "2026-11-04")).toBe(20000 + 50000 - 10000 + 13905 - 20000 + 0); // ago-25 queda afuera (dic-25 a nov-26)
   });
 });
+
+describe("tiques", () => {
+  it("reconoce Tique C (109) y la nota de crédito de tique C (114)", async () => {
+    const csv = '"Fecha";"Tipo";"Punto de Venta";"Número Desde";"Imp. Total"\n"03/11/2026";"109";"1";"500";"57276,00"\n"04/11/2026";"114";"1";"7";"1000,00"\n';
+    const { comprobantes } = await leerMisComprobantes(Buffer.from(csv), "x.csv");
+    expect(comprobantes.map((c) => [c.tipo, c.tipoTexto, c.importe])).toEqual([[109, "Tique C", 57276], [114, "Tique Nota de Crédito C", -1000]]);
+  });
+});

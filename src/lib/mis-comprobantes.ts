@@ -15,6 +15,8 @@ export interface ComprobanteARCA {
 
 const NOMBRES_TIPO: Record<number, string> = {
   11: "Factura C", 12: "Nota de Débito C", 13: "Nota de Crédito C", 15: "Recibo C",
+  83: "Tique", 109: "Tique C", 110: "Tique Nota de Crédito", 111: "Tique Factura C",
+  114: "Tique Nota de Crédito C", 117: "Tique Nota de Débito C",
   211: "Factura de Crédito Electrónica C", 212: "Nota de Débito Electrónica C", 213: "Nota de Crédito Electrónica C",
 };
 
@@ -58,7 +60,7 @@ function tipoDe(v: unknown): { tipo: number; texto: string } | null {
   return null;
 }
 
-const esNotaDeCredito = (tipo: number, texto: string) => [3, 8, 13, 53, 113, 203, 208, 213].includes(tipo) || /credito/i.test(normal(texto)) && /nota/i.test(normal(texto));
+const esNotaDeCredito = (tipo: number, texto: string) => [3, 8, 13, 53, 110, 112, 113, 114, 203, 208, 213].includes(tipo) || /credito/i.test(normal(texto)) && /nota/i.test(normal(texto));
 
 function leerCSV(texto: string): string[][] {
   const lineas = texto.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim());
