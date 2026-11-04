@@ -89,6 +89,18 @@ export async function guardarConfiguracion(_prev: Mensaje | null, form: FormData
     if (ambiente === "produccion" && !certReal) return { ok: false, texto: "Para facturar de verdad primero cargá el certificado real." };
     if (mpToken && !/^APP_USR-/.test(mpToken)) return { ok: false, texto: "La credencial de Mercado Pago tiene que empezar con APP_USR-." };
 
+    // Al pasar de prueba a real: los cobros que solo tienen factura de prueba
+    // vuelven a "revisar", para no quedar como facturados sin una factura válida.
+    const { data: antes } = await db.from("emisores").select("ambiente").eq("usuario_id", u.id).maybeSingle();
+    if (antes?.ambiente === "homologacion" && ambiente === "produccion") {
+      const { data: dePrueba } = await db.from("facturas").select("cobro_id").eq("usuario_id", u.id).eq("ambiente", "homologacion").not("cobro_id", "is", null);
+      const ids = (dePrueba ?? []).map((f) => f.cobro_id as string);
+      if (ids.length) {
+        await db.from("facturas").update({ cobro_id: null }).in("cobro_id", ids);
+        await db.from("cobros").update({ estado: "revisar", mensaje: "Tenía solo factura de prueba" }).in("id", ids);
+      }
+    }
+
     const { error: e1 } = await db.from("emisores").upsert({
       usuario_id: u.id,
       nombre: String(form.get("nombre") ?? "").trim() || (u.email ?? ""),
