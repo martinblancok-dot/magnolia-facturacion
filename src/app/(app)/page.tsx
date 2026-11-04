@@ -20,6 +20,23 @@ type Fila = {
   detalle: string | null; estado: string; mensaje: string | null;
 };
 
+function Acciones({ c }: { c: Fila }) {
+  return (
+    <div className="flex items-center justify-end gap-3">
+      {["revisar", "error", "no_es_venta"].includes(c.estado) && (
+        <form action={marcarCobro.bind(null, c.id, "a_facturar")}>
+          <button className="boton-borde !px-3 !py-1.5">{c.estado === "error" ? "Reintentar" : "Es venta"}</button>
+        </form>
+      )}
+      {["revisar", "error", "a_facturar"].includes(c.estado) && (
+        <form action={marcarCobro.bind(null, c.id, "no_es_venta")}>
+          <button className="py-1.5 text-sm text-suave underline">No es venta</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export default async function Cobros({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
   const u = await usuarioActual();
   const db = clienteServidor();
@@ -69,7 +86,7 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
       </div>
 
       <div>
-        <div className="flex flex-wrap gap-1 border-b border-linea">
+        <div className="-mx-4 flex gap-1 overflow-x-auto border-b border-linea px-4 whitespace-nowrap md:mx-0 md:flex-wrap md:px-0">
           {PESTANAS.map((p) => {
             const n = ["revisar", "a_facturar", "error"].includes(p.id) ? cuenta(p.id) : null;
             const activa = p.id === pestana.id;
@@ -83,11 +100,25 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
           })}
         </div>
         <div className="rounded-b-2xl border border-t-0 border-linea bg-white">
-          <p className="px-6 pt-4 text-sm text-suave">{pestana.ayuda}</p>
+          <p className="px-4 pt-4 text-sm text-suave md:px-6">{pestana.ayuda}</p>
           {(filas ?? []).length === 0 ? (
             <p className="px-6 py-10 text-center text-suave">No hay cobros acá.</p>
           ) : (
-            <table className="mt-2 w-full text-sm">
+            <>
+            <ul className="mt-2 divide-y divide-linea md:hidden">
+              {(filas as Fila[]).map((c) => (
+                <li key={c.id} className="px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-base font-semibold">{pesos(Number(c.importe))}</span>
+                    <span className="text-sm text-suave">{fechaCorta(c.dia)} {hora(c.fecha_hora)}</span>
+                  </div>
+                  <p className="text-sm text-suave">{ORIGENES[c.origen] ?? c.origen}{c.detalle ? ` · ${c.detalle}` : ""}</p>
+                  {c.mensaje && <p className="mt-1 text-sm text-red-700">{c.mensaje}</p>}
+                  {["revisar", "error", "no_es_venta", "a_facturar"].includes(c.estado) && <div className="mt-2"><Acciones c={c} /></div>}
+                </li>
+              ))}
+            </ul>
+            <table className="mt-2 hidden w-full text-sm md:table">
               <thead className="text-left text-suave">
                 <tr className="border-b border-linea">
                   <th className="px-6 py-2 font-medium">Fecha</th>
@@ -108,23 +139,13 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
                     </td>
                     <td className="py-3 text-right font-semibold whitespace-nowrap">{pesos(Number(c.importe))}</td>
                     <td className="px-6 py-3">
-                      <div className="flex justify-end gap-2">
-                        {["revisar", "error", "no_es_venta"].includes(c.estado) && (
-                          <form action={marcarCobro.bind(null, c.id, "a_facturar")}>
-                            <button className="boton-borde !px-3 !py-1">{c.estado === "error" ? "Reintentar" : "Es venta"}</button>
-                          </form>
-                        )}
-                        {["revisar", "error", "a_facturar"].includes(c.estado) && (
-                          <form action={marcarCobro.bind(null, c.id, "no_es_venta")}>
-                            <button className="text-sm text-suave underline">No es venta</button>
-                          </form>
-                        )}
-                      </div>
+                      <Acciones c={c} />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
         {pestana.id === "error" && (filas ?? []).some((c) => (c as Fila).mensaje?.startsWith("[VERIFICAR")) && (

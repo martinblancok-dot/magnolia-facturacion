@@ -98,7 +98,7 @@ export default async function Monotributo() {
 
           <div className="tarjeta">
             <h2 className="font-semibold">Mes a mes</h2>
-            <div className="mt-4 flex h-44 items-end gap-1">
+            <div className="mt-4 flex h-36 items-end gap-0.5 md:h-44 md:gap-1">
               {meses.map((m) => {
                 const v = porMes.get(m)?.total ?? 0;
                 return (
@@ -116,7 +116,22 @@ export default async function Monotributo() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-linea bg-white">
+          <ul className="divide-y divide-linea rounded-2xl border border-linea bg-white md:hidden">
+            {periodos.map((p) => (
+              <li key={p.nombre} className="flex items-center justify-between gap-3 px-4 py-3">
+                <span>
+                  <span className="block font-semibold">
+                    {p.nombre}
+                    {p.enCurso && <span className="ml-2 rounded bg-marca-claro px-1 text-xs font-normal text-marca">en curso</span>}
+                  </span>
+                  <span className="text-sm text-suave">{mesLargo(p.desde)} a {mesLargo(p.hasta)} · {p.cantidad} comp.</span>
+                  {p.mesesConDatos < 12 && !p.enCurso && <span className="block text-xs text-amber-800">solo {p.mesesConDatos} meses con datos</span>}
+                </span>
+                <span className="font-semibold whitespace-nowrap">{pesos(p.total)}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden rounded-2xl border border-linea bg-white md:block">
             <table className="w-full text-sm">
               <thead className="text-left text-suave">
                 <tr className="border-b border-linea">

@@ -9,7 +9,7 @@ export default async function LayoutApp({ children }: { children: React.ReactNod
   return (
     <>
       <Menu nombre={e?.nombre ?? u.email ?? ""} salir={salir} />
-      <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      <main className="mx-auto max-w-5xl px-4 pt-5 pb-28 md:px-6 md:py-8">{children}</main>
     </>
   );
 }

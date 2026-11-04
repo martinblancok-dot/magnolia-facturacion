@@ -34,15 +34,15 @@ export default async function Facturas({ searchParams }: { searchParams: Promise
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Facturas</h1>
           {ambiente === "homologacion" && <p className="text-sm text-blue-900">Mostrando facturas de prueba.</p>}
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <Link href={`/facturas?mes=${sumarMes(mes, -1)}`} className="boton-borde !px-3 !py-1">←</Link>
-          <span className="w-32 text-center font-semibold capitalize">{MESES[m - 1]} {a}</span>
-          <Link href={`/facturas?mes=${sumarMes(mes, 1)}`} className="boton-borde !px-3 !py-1">→</Link>
+          <Link href={`/facturas?mes=${sumarMes(mes, -1)}`} className="boton-borde !px-4 !py-2">←</Link>
+          <span className="w-36 text-center font-semibold capitalize">{MESES[m - 1]} {a}</span>
+          <Link href={`/facturas?mes=${sumarMes(mes, 1)}`} className="boton-borde !px-4 !py-2">→</Link>
         </div>
       </div>
 
@@ -73,7 +73,27 @@ export default async function Facturas({ searchParams }: { searchParams: Promise
         {(delMes ?? []).length === 0 ? (
           <p className="px-6 py-10 text-center text-suave">No hay facturas este mes.</p>
         ) : (
-          <table className="w-full text-sm">
+          <>
+          <ul className="divide-y divide-linea md:hidden">
+            {(delMes ?? []).map((f) => (
+              <li key={f.id}>
+                <a href={`/facturas/${f.id}/pdf`} target="_blank" className="flex items-center justify-between gap-3 px-4 py-3">
+                  <span>
+                    <span className="block font-mono text-sm">{numeroFactura(f.punto_venta, f.numero)}</span>
+                    <span className="text-sm text-suave">
+                      {fechaCorta(f.fecha)}
+                      {f.fuera_de_termino && <span className="ml-2 rounded bg-amber-100 px-1 text-xs text-amber-900">fuera de término</span>}
+                    </span>
+                  </span>
+                  <span className="text-right">
+                    <span className="block font-semibold">{pesos(Number(f.importe))}</span>
+                    <span className="text-sm text-marca underline">PDF</span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <table className="hidden w-full text-sm md:table">
             <thead className="text-left text-suave">
               <tr className="border-b border-linea">
                 <th className="px-6 py-2 font-medium">Número</th>
@@ -100,6 +120,7 @@ export default async function Facturas({ searchParams }: { searchParams: Promise
               ))}
             </tbody>
           </table>
+          </>
         )}
       </div>
     </div>
