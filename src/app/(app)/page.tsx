@@ -12,7 +12,7 @@ const PESTANAS = [
   { id: "a_facturar", texto: "Por facturar", ayuda: "Ventas confirmadas que todavía no tienen factura." },
   { id: "error", texto: "Errores", ayuda: "ARCA rechazó la factura o no respondió." },
   { id: "facturado", texto: "Facturados", ayuda: "Ya tienen factura." },
-  { id: "ya_facturado", texto: "Ya facturados", ayuda: "Coinciden en importe exacto con una factura hecha a mano en ARCA (del mismo día hasta 45 días después). Si alguno no corresponde, tocá “No era esta”." },
+  { id: "ya_facturado", texto: "Ya facturados", ayuda: "Cobros de antes de que empezaras a usar el sistema que coinciden en importe exacto con una factura hecha a mano en ARCA (del mismo día hasta 45 días después). Si alguno no corresponde, tocá “No era esta”." },
   { id: "no_es_venta", texto: "No son venta", ayuda: "Se marcaron como que no hay que facturarlos." },
 ] as const;
 

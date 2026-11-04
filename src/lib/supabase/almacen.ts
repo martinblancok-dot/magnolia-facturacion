@@ -100,14 +100,31 @@ export async function traerEmisores(db: SupabaseClient, soloUsuario?: string): P
   return res;
 }
 
+
+/**
+ * El cruce con facturas a mano es solo para lo anterior al sistema: se aplica a cobros
+ * de antes del día en que el sistema emitió su primera factura real. Desde ahí en
+ * adelante todo lo factura el sistema y no hace falta cruzar (evita confusiones con
+ * facturas de efectivo del mismo monto). Sin facturas reales todavía, se cruza todo.
+ */
+async function corteConciliacion(db: SupabaseClient, usuarioId: string): Promise<string | null> {
+  const { data } = await db.from("facturas").select("creado_en").eq("usuario_id", usuarioId).eq("ambiente", "produccion")
+    .order("creado_en").limit(1).maybeSingle();
+  if (!data?.creado_en) return null;
+  return new Date(new Date(data.creado_en).getTime() - 3 * 3600_000).toISOString().slice(0, 10); // día en Argentina
+}
+
 /**
  * Marca como "ya_facturado" los cobros pendientes que coinciden con un comprobante
  * hecho a mano en ARCA (importado desde Mis Comprobantes). Devuelve cuántos marcó.
  */
 export async function conciliarUsuario(db: SupabaseClient, usuarioId: string, puntoVentaSistema: number | null): Promise<number> {
   const { conciliar, DIAS_DESPUES } = await import("../conciliacion");
-  const cobros = ok(await db.from("cobros").select("id, dia, importe")
-    .eq("usuario_id", usuarioId).in("estado", ["revisar", "a_facturar"]).eq("no_conciliar", false).limit(5000)) ?? [];
+  const corte = await corteConciliacion(db, usuarioId);
+  let qc = db.from("cobros").select("id, dia, importe")
+    .eq("usuario_id", usuarioId).in("estado", ["revisar", "a_facturar"]).eq("no_conciliar", false).limit(5000);
+  if (corte) qc = qc.lt("dia", corte);
+  const cobros = ok(await qc) ?? [];
   if (cobros.length === 0) return 0;
   const minDia = cobros.reduce((m, c) => (c.dia < m ? c.dia : m), cobros[0].dia);
   const maxDia = cobros.reduce((m, c) => (c.dia > m ? c.dia : m), cobros[0].dia);
@@ -153,8 +170,11 @@ export interface PosibleDuplicado {
 /** Cobros que el sistema ya facturó y que además coinciden con una factura hecha a mano. */
 export async function posiblesDuplicados(db: SupabaseClient, usuarioId: string, puntoVentaSistema: number | null): Promise<PosibleDuplicado[]> {
   const { conciliar, DIAS_DESPUES } = await import("../conciliacion");
-  const facturados = ok(await db.from("cobros").select("id, dia, importe, facturas(punto_venta, numero, ambiente)")
-    .eq("usuario_id", usuarioId).eq("estado", "facturado").limit(5000)) ?? [];
+  const corte = await corteConciliacion(db, usuarioId);
+  let qf = db.from("cobros").select("id, dia, importe, facturas(punto_venta, numero, ambiente)")
+    .eq("usuario_id", usuarioId).eq("estado", "facturado").limit(5000);
+  if (corte) qf = qf.lt("dia", corte); // solo lo de antes del sistema puede tener factura a mano
+  const facturados = ok(await qf) ?? [];
   const reales = facturados
     .map((c) => ({ ...c, f: (Array.isArray(c.facturas) ? c.facturas[0] : c.facturas) as { punto_venta: number; numero: number; ambiente: string } | null }))
     .filter((c) => c.f?.ambiente === "produccion");
