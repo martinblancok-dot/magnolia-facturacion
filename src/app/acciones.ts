@@ -2,6 +2,7 @@
 // Todo lo que se hace con un botón: ingresar, guardar la configuración, marcar cobros, facturar.
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { UMBRAL_IDENTIFICACION } from "@/lib/arca/config";
 import { claveCorresponde, infoCertificado, normalizarCertificado, normalizarClave } from "@/lib/arca/certificados";
 import { pedirTicket } from "@/lib/arca/wsaa";
 import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
@@ -89,8 +90,8 @@ export async function guardarConfiguracion(_prev: Mensaje | null, form: FormData
     if (ambiente === "produccion" && !certReal) return { ok: false, texto: "Para facturar de verdad primero cargá el certificado real." };
     if (mpToken && !/^APP_USR-/.test(mpToken)) return { ok: false, texto: "La credencial de Mercado Pago tiene que empezar con APP_USR-." };
 
-    // Al pasar de prueba a real: los cobros que solo tienen factura de prueba
-    // vuelven a "revisar", para no quedar como facturados sin una factura válida.
+    // Al pasar de prueba a real: los cobros que solo tienen factura de prueba vuelven
+    // a su estado inicial (posnet/QR → por facturar; el resto → revisar).
     const { data: antes } = await db.from("emisores").select("ambiente").eq("usuario_id", u.id).maybeSingle();
     if (antes?.ambiente === "homologacion" && ambiente === "produccion") {
       const { data: dePrueba } = await db.from("facturas").select("cobro_id").eq("usuario_id", u.id).eq("ambiente", "homologacion").not("cobro_id", "is", null);
@@ -98,6 +99,8 @@ export async function guardarConfiguracion(_prev: Mensaje | null, form: FormData
       if (ids.length) {
         await db.from("facturas").update({ cobro_id: null }).in("cobro_id", ids);
         await db.from("cobros").update({ estado: "revisar", mensaje: "Tenía solo factura de prueba" }).in("id", ids);
+        await db.from("cobros").update({ estado: "a_facturar", mensaje: null }).in("id", ids)
+          .in("origen", ["posnet", "qr"]).lt("importe", UMBRAL_IDENTIFICACION);
       }
     }
 
@@ -194,7 +197,9 @@ export async function facturarAhora(): Promise<Mensaje> {
     if (r.emitidas === 0 && r.errores.length === 0) return { ok: true, texto: "No había cobros para facturar." };
     return {
       ok: r.errores.length === 0,
-      texto: `Facturas emitidas: ${r.emitidas}.` + (r.errores.length ? ` Con problemas: ${r.errores.length} (mirá la pestaña Errores).` : ""),
+      texto: `Facturas emitidas: ${r.emitidas}.` +
+        (r.quedan ? ` Quedan ${r.quedan}: tocá de nuevo "Facturar ahora".` : "") +
+        (r.errores.length ? ` Con problemas: ${r.errores.length} (mirá la pestaña Errores).` : ""),
     };
   } catch (err) {
     return { ok: false, texto: (err as Error).message };

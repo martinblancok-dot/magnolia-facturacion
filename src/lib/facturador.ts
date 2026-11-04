@@ -43,6 +43,7 @@ export interface ServicioARCA {
 
 export interface Resumen {
   emitidas: number;
+  quedan: number; // pendientes que no entraron en esta tanda
   rechazadas: number;
   errores: string[];
 }
@@ -61,9 +62,12 @@ export async function facturarPendientes(
   almacen: Almacen,
   arca: ServicioARCA,
   ahora = new Date(),
+  limite = 40, // por tanda, para no pasarnos del tiempo máximo del servidor
 ): Promise<Resumen> {
-  const resumen: Resumen = { emitidas: 0, rechazadas: 0, errores: [] };
-  const cobros = await almacen.cobrosAFacturar(e.usuarioId);
+  const resumen: Resumen = { emitidas: 0, quedan: 0, rechazadas: 0, errores: [] };
+  const todos = await almacen.cobrosAFacturar(e.usuarioId);
+  const cobros = todos.slice(0, limite);
+  resumen.quedan = todos.length - cobros.length;
   if (cobros.length === 0) return resumen;
 
   const ticket = await obtenerTicket(e, almacen, arca, ahora);

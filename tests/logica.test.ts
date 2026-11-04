@@ -121,3 +121,14 @@ describe("facturador", () => {
     expect(reg.tickets).toBe(0);
   });
 });
+
+describe("tandas", () => {
+  it("factura de a 40 como máximo y avisa cuántos quedan", async () => {
+    const cobros = Array.from({ length: 45 }, (_, i) => ({ id: `c${i}`, dia: "2026-11-13", importe: 100 }));
+    const { reg, almacen, arca } = falsos(cobros, Array(45).fill("ok"));
+    const r = await facturarPendientes(emisor, almacen, arca, ahora);
+    expect(r.emitidas).toBe(40);
+    expect(r.quedan).toBe(5);
+    expect(reg.facturas.at(-1).numero).toBe(81);
+  });
+});
