@@ -1,3 +1,4 @@
+export const maxDuration = 120; // facturar muchos cobros juntos puede tardar
 import Link from "next/link";
 import { facturarAhora, marcarCobro, traerCobrosDesde } from "../acciones";
 import { BotonAccion, Formulario } from "../componentes";

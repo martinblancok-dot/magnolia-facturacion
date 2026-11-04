@@ -1,3 +1,4 @@
+export const maxDuration = 120;
 // Tarea automática: cada 10-15 minutos Supabase llama a esta dirección.
 // 1) Trae los cobros nuevos de Mercado Pago de cada persona.
 // 2) Si la persona tiene prendida la facturación automática, factura los pendientes.
