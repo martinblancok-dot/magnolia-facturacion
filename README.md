@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Magnolia · Facturación automática
 
-## Getting Started
+Factura en ARCA (Factura C, monotributo) los cobros que entran por Mercado Pago:
 
-First, run the development server:
+- **Posnet y QR**: se facturan solos.
+- **Transferencias**: quedan en "revisar" hasta que alguien confirme que son una venta.
+- **Efectivo**: se sigue facturando a mano en Comprobantes en línea.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Cada persona (Martín, Sofi) tiene su usuario, su CUIT, su certificado y su cuenta de Mercado Pago.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Cómo está armado
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Carpeta | Qué hay |
+| --- | --- |
+| `src/lib/arca/` | Conexión con ARCA: login (WSAA) y factura electrónica (WSFE) |
+| `src/lib/mercadopago.ts` | Lee los cobros de Mercado Pago y decide si son posnet, QR o transferencia |
+| `src/lib/fechas.ts` | Qué fecha lleva cada factura (hasta 5 días atrás, nunca antes de la última) |
+| `src/lib/facturador.ts` | Factura los pendientes en orden, sin saltear números |
+| `src/lib/secretos.ts` | Cifra certificados y tokens antes de guardarlos |
+| `src/app/api/procesar/` | La tarea automática que corre cada 10-15 minutos |
+| `supabase/migrations/` | Las tablas de la base de datos |
+| `tests/` | Pruebas automáticas (`npm test`) |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Reglas de seguridad
 
-## Learn More
+- Si ARCA no responde, el sistema **frena** y marca el cobro "[VERIFICAR EN ARCA]": no reintenta solo, para no facturar dos veces.
+- Las ventas por encima de `UMBRAL_IDENTIFICACION` nunca se facturan solas (ARCA pide datos del comprador).
+- Cada emisor arranca en `homologacion` (pruebas) y con `facturar_automatico = false`.
 
-To learn more about Next.js, take a look at the following resources:
+## Estado
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [x] Conexión con ARCA, lectura de Mercado Pago, lógica de facturación, base de datos (con pruebas)
+- [ ] Pantallas: ingreso, cargar certificados y token, lista de cobros para revisar, facturas con PDF
+- [ ] Tarea programada en Supabase
+- [ ] Prueba real en homologación con los certificados de Martín y Sofi
+- [ ] Pasar a producción
