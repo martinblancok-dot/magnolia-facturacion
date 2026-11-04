@@ -132,3 +132,17 @@ describe("tandas", () => {
     expect(reg.facturas.at(-1).numero).toBe(81);
   });
 });
+
+import { conciliar } from "@/lib/conciliacion";
+describe("conciliación con facturas a mano", () => {
+  it("cruza por importe exacto y fecha cercana, una factura por cobro", () => {
+    const r = conciliar(
+      [{ id: "a", dia: "2026-10-10", importe: 15000 }, { id: "b", dia: "2026-10-10", importe: 15000 }, { id: "c", dia: "2026-10-12", importe: 8000 }],
+      [{ id: "x", fecha: "2026-10-11", importe: 15000 }, { id: "y", fecha: "2026-10-20", importe: 8000 }, { id: "z", fecha: "2026-10-10", importe: 15000 }],
+    );
+    expect(r).toEqual([{ cobroId: "a", comprobanteId: "z" }, { cobroId: "b", comprobanteId: "x" }]); // "c": factura muy lejos
+  });
+  it("no usa facturas anteriores al cobro ni notas de crédito", () => {
+    expect(conciliar([{ id: "a", dia: "2026-10-10", importe: 100 }], [{ id: "x", fecha: "2026-10-09", importe: 100 }, { id: "y", fecha: "2026-10-10", importe: -100 }])).toEqual([]);
+  });
+});

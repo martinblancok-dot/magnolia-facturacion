@@ -10,7 +10,7 @@ import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
 import { leerMisComprobantes } from "@/lib/mis-comprobantes";
 import { cifrar, descifrar } from "@/lib/secretos";
-import { almacenSupabase, clienteServidor, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
+import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
 import { clienteUsuario, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -154,18 +154,21 @@ export async function probarARCA(): Promise<Mensaje> {
 
 // ---------- Cobros ----------
 
-export async function marcarCobro(id: string, nuevo: "a_facturar" | "no_es_venta" | "revisar") {
+export async function marcarCobro(id: string, nuevo: "a_facturar" | "no_es_venta" | "revisar" | "ya_facturado") {
   const u = await usuarioActual();
   const db = clienteServidor();
   const { data: c } = await db.from("cobros").select("estado, usuario_id").eq("id", id).maybeSingle();
   if (!c || c.usuario_id !== u.id) return;
   const permitido: Record<string, string[]> = {
-    a_facturar: ["revisar", "error", "no_es_venta"],
+    a_facturar: ["revisar", "error", "no_es_venta", "ya_facturado"],
     no_es_venta: ["revisar", "error", "a_facturar"],
-    revisar: ["a_facturar", "no_es_venta"],
+    revisar: ["a_facturar", "no_es_venta", "ya_facturado"],
+    ya_facturado: [],
   };
   if (!permitido[nuevo].includes(c.estado)) return;
-  await db.from("cobros").update({ estado: nuevo, mensaje: null }).eq("id", id);
+  // Si sale de "ya facturado" es porque no era esa factura: se suelta y no se vuelve a cruzar.
+  const extra = c.estado === "ya_facturado" ? { comprobante_id: null, no_conciliar: true } : {};
+  await db.from("cobros").update({ estado: nuevo, mensaje: null, ...extra }).eq("id", id);
   revalidatePath("/");
 }
 
@@ -179,8 +182,13 @@ export async function traerCobrosDesde(_prev: Mensaje | null, form: FormData): P
   try {
     const cobros = await traerCobros(e.mpToken, `${desde}T00:00:00.000-03:00`, new Date().toISOString());
     const nuevos = await guardarCobros(db, u.id, cobros);
+    const yaFacturados = await conciliarUsuario(db, u.id, e.puntoVenta);
     revalidatePath("/");
-    return { ok: true, texto: `Se revisaron ${cobros.length} cobros; ${nuevos} eran nuevos.` };
+    return {
+      ok: true,
+      texto: `Se revisaron ${cobros.length} cobros; ${nuevos} eran nuevos.` +
+        (yaFacturados ? ` ${yaFacturados} ya tenían factura hecha a mano (pestaña "Ya facturados").` : ""),
+    };
   } catch (err) {
     return { ok: false, texto: (err as Error).message };
   }
@@ -192,6 +200,7 @@ export async function facturarAhora(): Promise<Mensaje> {
   const e = await traerEmisor(db, u.id);
   if (!e) return { ok: false, texto: "Falta terminar la configuración." };
   try {
+    await conciliarUsuario(db, u.id, e.puntoVenta);
     const r = await facturarPendientes(e, almacenSupabase(db), arca);
     revalidatePath("/");
     revalidatePath("/facturas");
@@ -230,8 +239,11 @@ export async function importarMisComprobantes(_prev: Mensaje | null, form: FormD
       }
       total += r.comprobantes.length;
     }
+    const { data: em } = await db.from("emisores").select("punto_venta").eq("usuario_id", u.id).maybeSingle();
+    const yaFacturados = await conciliarUsuario(db, u.id, em?.punto_venta ?? null);
     revalidatePath("/monotributo");
-    return { ok: true, texto: `Se cargaron ${total} comprobantes.` + (ignoradas ? ` (${ignoradas} filas sin datos se saltearon)` : "") + " Si subís el mismo período otra vez no se duplica." };
+    revalidatePath("/");
+    return { ok: true, texto: `Se cargaron ${total} comprobantes.` + (yaFacturados ? ` ${yaFacturados} cobros pendientes ya tenían esa factura y se apartaron.` : "") + (ignoradas ? ` (${ignoradas} filas sin datos se saltearon)` : "") + " Si subís el mismo período otra vez no se duplica." };
   } catch (err) {
     return { ok: false, texto: (err as Error).message };
   }

@@ -4,7 +4,7 @@ import { facturarAhora, marcarCobro, traerCobrosDesde } from "../acciones";
 import { BotonAccion, Formulario } from "../componentes";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, hora, ORIGENES, pesos } from "@/lib/formato";
-import { clienteServidor } from "@/lib/supabase/almacen";
+import { clienteServidor, posiblesDuplicados } from "@/lib/supabase/almacen";
 import { usuarioActual } from "@/lib/supabase/sesion";
 
 const PESTANAS = [
@@ -12,6 +12,7 @@ const PESTANAS = [
   { id: "a_facturar", texto: "Por facturar", ayuda: "Ventas confirmadas que todavía no tienen factura." },
   { id: "error", texto: "Errores", ayuda: "ARCA rechazó la factura o no respondió." },
   { id: "facturado", texto: "Facturados", ayuda: "Ya tienen factura." },
+  { id: "ya_facturado", texto: "Ya facturados", ayuda: "Coinciden en importe y fecha con una factura hecha a mano en ARCA. Si alguno no corresponde, tocá “No era esta”." },
   { id: "no_es_venta", texto: "No son venta", ayuda: "Se marcaron como que no hay que facturarlos." },
 ] as const;
 
@@ -26,6 +27,11 @@ function Acciones({ c }: { c: Fila }) {
       {["revisar", "error", "no_es_venta"].includes(c.estado) && (
         <form action={marcarCobro.bind(null, c.id, "a_facturar")}>
           <button className="boton-borde !px-3 !py-1.5">{c.estado === "error" ? "Reintentar" : "Es venta"}</button>
+        </form>
+      )}
+      {c.estado === "ya_facturado" && (
+        <form action={marcarCobro.bind(null, c.id, c.origen === "posnet" || c.origen === "qr" ? "a_facturar" : "revisar")}>
+          <button className="py-1.5 text-sm text-suave underline">No era esta</button>
         </form>
       )}
       {["revisar", "error", "a_facturar"].includes(c.estado) && (
@@ -46,8 +52,9 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
   const [{ data: filas }, { data: todos }, { data: emisor }] = await Promise.all([
     db.from("cobros").select("*").eq("usuario_id", u.id).eq("estado", pestana.id).order("fecha_hora", { ascending: false }).limit(300),
     db.from("cobros").select("estado").eq("usuario_id", u.id).in("estado", ["revisar", "a_facturar", "error"]),
-    db.from("emisores").select("ambiente, facturar_automatico").eq("usuario_id", u.id).maybeSingle(),
+    db.from("emisores").select("ambiente, facturar_automatico, punto_venta").eq("usuario_id", u.id).maybeSingle(),
   ]);
+  const duplicados = await posiblesDuplicados(db, u.id, emisor?.punto_venta ?? null);
   const cuenta = (estado: string) => (todos ?? []).filter((t) => t.estado === estado).length;
 
   return (
@@ -61,6 +68,25 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
         <p className="rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-900">
           Modo <b>prueba</b>: las facturas que se emitan no tienen validez.
         </p>
+      )}
+
+      {duplicados.length > 0 && (
+        <details className="tarjeta border-red-300 bg-red-50 text-red-900">
+          <summary className="cursor-pointer font-semibold">
+            Atención: {duplicados.length} {duplicados.length === 1 ? "venta podría estar facturada" : "ventas podrían estar facturadas"} dos veces
+          </summary>
+          <p className="mt-2 text-sm">
+            El sistema las facturó y además hay una factura hecha a mano con el mismo importe y fecha cercana.
+            Revisá cada una en ARCA; si es la misma venta, hay que anular una con nota de crédito.
+          </p>
+          <ul className="mt-3 space-y-1 text-sm">
+            {duplicados.map((d) => (
+              <li key={d.cobroId}>
+                {fechaCorta(d.dia)} · <b>{pesos(d.importe)}</b> · sistema {d.facturaSistema} · a mano {d.facturaMano} ({fechaCorta(d.fechaMano)})
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -114,7 +140,7 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
                   </div>
                   <p className="text-sm text-suave">{ORIGENES[c.origen] ?? c.origen}{c.detalle ? ` · ${c.detalle}` : ""}</p>
                   {c.mensaje && <p className="mt-1 text-sm text-red-700">{c.mensaje}</p>}
-                  {["revisar", "error", "no_es_venta", "a_facturar"].includes(c.estado) && <div className="mt-2"><Acciones c={c} /></div>}
+                  {["revisar", "error", "no_es_venta", "a_facturar", "ya_facturado"].includes(c.estado) && <div className="mt-2"><Acciones c={c} /></div>}
                 </li>
               ))}
             </ul>

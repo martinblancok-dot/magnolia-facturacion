@@ -7,7 +7,7 @@ import { pedirTicket } from "@/lib/arca/wsaa";
 import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
 import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
-import { almacenSupabase, clienteServidor, guardarCobros, traerEmisores } from "@/lib/supabase/almacen";
+import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisores } from "@/lib/supabase/almacen";
 
 const arca = { pedirTicket, ultimoNumero, solicitarCAE };
 
@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     const r: Record<string, unknown> = {};
     try {
       if (e.mpToken) r.cobrosNuevos = await guardarCobros(db, e.usuarioId, await traerCobros(e.mpToken, desde, ahora.toISOString()));
+      r.yaFacturados = await conciliarUsuario(db, e.usuarioId, e.puntoVenta);
       if (e.facturarAutomatico) r.facturas = await facturarPendientes(e, almacen, arca, ahora);
     } catch (err) {
       r.error = (err as Error).message;

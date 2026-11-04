@@ -99,3 +99,84 @@ export async function traerEmisores(db: SupabaseClient, soloUsuario?: string): P
   }
   return res;
 }
+
+/**
+ * Marca como "ya_facturado" los cobros pendientes que coinciden con un comprobante
+ * hecho a mano en ARCA (importado desde Mis Comprobantes). Devuelve cuántos marcó.
+ */
+export async function conciliarUsuario(db: SupabaseClient, usuarioId: string, puntoVentaSistema: number | null): Promise<number> {
+  const { conciliar, DIAS_DESPUES } = await import("../conciliacion");
+  const cobros = ok(await db.from("cobros").select("id, dia, importe")
+    .eq("usuario_id", usuarioId).in("estado", ["revisar", "a_facturar"]).eq("no_conciliar", false).limit(5000)) ?? [];
+  if (cobros.length === 0) return 0;
+  const minDia = cobros.reduce((m, c) => (c.dia < m ? c.dia : m), cobros[0].dia);
+  const maxDia = cobros.reduce((m, c) => (c.dia > m ? c.dia : m), cobros[0].dia);
+  const hasta = new Date(Date.parse(`${maxDia}T12:00:00Z`) + DIAS_DESPUES * 86400_000).toISOString().slice(0, 10);
+
+  let q = db.from("comprobantes_arca").select("id, fecha, importe, punto_venta, numero_desde")
+    .eq("usuario_id", usuarioId).in("tipo", [11, 15, 211]).gte("fecha", minDia).lte("fecha", hasta).limit(10000);
+  if (puntoVentaSistema) q = q.neq("punto_venta", puntoVentaSistema); // las del sistema no son "a mano"
+  const comprobantes = ok(await q) ?? [];
+  if (comprobantes.length === 0) return 0;
+
+  // Sacar los comprobantes que ya están asociados a otro cobro
+  const ids = comprobantes.map((c) => c.id);
+  const usados = new Set<string>();
+  for (let i = 0; i < ids.length; i += 300) {
+    const r = ok(await db.from("cobros").select("comprobante_id").in("comprobante_id", ids.slice(i, i + 300))) ?? [];
+    r.forEach((x) => usados.add(x.comprobante_id as string));
+  }
+  const libres = comprobantes.filter((c) => !usados.has(c.id)).map((c) => ({ id: c.id, fecha: c.fecha, importe: Number(c.importe) }));
+  const pares = conciliar(cobros.map((c) => ({ id: c.id, dia: c.dia, importe: Number(c.importe) })), libres);
+
+  const porId = new Map(comprobantes.map((c) => [c.id, c]));
+  for (const p of pares) {
+    const c = porId.get(p.comprobanteId)!;
+    const num = `${String(c.punto_venta).padStart(5, "0")}-${String(c.numero_desde).padStart(8, "0")}`;
+    ok(await db.from("cobros").update({
+      estado: "ya_facturado", comprobante_id: p.comprobanteId,
+      mensaje: `Factura a mano ${num} del ${c.fecha.split("-").reverse().join("/")}`,
+    }).eq("id", p.cobroId).in("estado", ["revisar", "a_facturar"]));
+  }
+  return pares.length;
+}
+
+export interface PosibleDuplicado {
+  cobroId: string;
+  dia: string;
+  importe: number;
+  facturaSistema: string; // número de la factura que hizo el sistema
+  facturaMano: string; // número de la factura hecha a mano
+  fechaMano: string;
+}
+
+/** Cobros que el sistema ya facturó y que además coinciden con una factura hecha a mano. */
+export async function posiblesDuplicados(db: SupabaseClient, usuarioId: string, puntoVentaSistema: number | null): Promise<PosibleDuplicado[]> {
+  const { conciliar, DIAS_DESPUES } = await import("../conciliacion");
+  const facturados = ok(await db.from("cobros").select("id, dia, importe, facturas(punto_venta, numero, ambiente)")
+    .eq("usuario_id", usuarioId).eq("estado", "facturado").limit(5000)) ?? [];
+  const reales = facturados
+    .map((c) => ({ ...c, f: (Array.isArray(c.facturas) ? c.facturas[0] : c.facturas) as { punto_venta: number; numero: number; ambiente: string } | null }))
+    .filter((c) => c.f?.ambiente === "produccion");
+  if (reales.length === 0) return [];
+  const minDia = reales.reduce((m, c) => (c.dia < m ? c.dia : m), reales[0].dia);
+  const maxDia = reales.reduce((m, c) => (c.dia > m ? c.dia : m), reales[0].dia);
+  const hasta = new Date(Date.parse(`${maxDia}T12:00:00Z`) + DIAS_DESPUES * 86400_000).toISOString().slice(0, 10);
+  let q = db.from("comprobantes_arca").select("id, fecha, importe, punto_venta, numero_desde")
+    .eq("usuario_id", usuarioId).in("tipo", [11, 15, 211]).gte("fecha", minDia).lte("fecha", hasta).limit(10000);
+  if (puntoVentaSistema) q = q.neq("punto_venta", puntoVentaSistema);
+  const manos = ok(await q) ?? [];
+  const pares = conciliar(
+    reales.map((c) => ({ id: c.id, dia: c.dia, importe: Number(c.importe) })),
+    manos.map((m) => ({ id: m.id, fecha: m.fecha, importe: Number(m.importe) })),
+  );
+  const nro = (pv: number, n: number) => `${String(pv).padStart(5, "0")}-${String(n).padStart(8, "0")}`;
+  return pares.map((p) => {
+    const c = reales.find((x) => x.id === p.cobroId)!;
+    const m = manos.find((x) => x.id === p.comprobanteId)!;
+    return {
+      cobroId: c.id, dia: c.dia, importe: Number(c.importe),
+      facturaSistema: nro(c.f!.punto_venta, c.f!.numero), facturaMano: nro(m.punto_venta, m.numero_desde), fechaMano: m.fecha,
+    };
+  });
+}
