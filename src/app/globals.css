@@ -1,26 +1,37 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: system-ui, sans-serif;
-  --font-mono: ui-monospace, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-fondo: #faf7f2;
+  --color-tarjeta: #ffffff;
+  --color-tinta: #2b2622;
+  --color-suave: #7a6f66;
+  --color-marca: #6b4a3a;
+  --color-marca-claro: #f3ebe4;
+  --color-linea: #e6ddd3;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-fondo);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+}
+
+.boton {
+  @apply inline-flex items-center gap-2 rounded-lg bg-marca px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50;
+}
+.boton-borde {
+  @apply inline-flex items-center gap-2 rounded-lg border border-marca bg-white px-4 py-2 text-sm font-semibold text-marca hover:bg-marca-claro disabled:opacity-50;
+}
+.campo {
+  @apply w-full rounded-lg border border-linea bg-white px-3 py-2 text-base focus:outline-2 focus:outline-marca;
+}
+.tarjeta {
+  @apply rounded-2xl border border-linea bg-tarjeta p-6;
+}
+.etiqueta {
+  @apply mb-1 block text-sm font-semibold;
+}
+.ayuda {
+  @apply mt-1 text-sm text-suave;
 }

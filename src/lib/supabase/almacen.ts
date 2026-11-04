@@ -69,10 +69,22 @@ export interface EmisorCompleto extends Emisor {
   facturarAutomatico: boolean;
 }
 
-/** Trae a todos los emisores con sus secretos descifrados (solo en el servidor). */
-export async function traerEmisores(db: SupabaseClient): Promise<EmisorCompleto[]> {
-  const emisores = ok(await db.from("emisores").select("*"));
-  const secretos = ok(await db.from("secretos").select("*"));
+/** Un emisor con sus secretos, o null si todavía no terminó de configurar. */
+export async function traerEmisor(db: SupabaseClient, usuarioId: string): Promise<EmisorCompleto | null> {
+  const todos = await traerEmisores(db, usuarioId);
+  return todos[0] ?? null;
+}
+
+/** Trae a los emisores con sus secretos descifrados (solo en el servidor). */
+export async function traerEmisores(db: SupabaseClient, soloUsuario?: string): Promise<EmisorCompleto[]> {
+  let qe = db.from("emisores").select("*");
+  let qs = db.from("secretos").select("*");
+  if (soloUsuario) {
+    qe = qe.eq("usuario_id", soloUsuario);
+    qs = qs.eq("usuario_id", soloUsuario);
+  }
+  const emisores = ok(await qe);
+  const secretos = ok(await qs);
   const res: EmisorCompleto[] = [];
   for (const e of emisores ?? []) {
     const s = (secretos ?? []).find((x) => x.usuario_id === e.usuario_id);

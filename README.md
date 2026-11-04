@@ -27,10 +27,17 @@ Cada persona (Martín, Sofi) tiene su usuario, su CUIT, su certificado y su cuen
 - Las ventas por encima de `UMBRAL_IDENTIFICACION` nunca se facturan solas (ARCA pide datos del comprador).
 - Cada emisor arranca en `homologacion` (pruebas) y con `facturar_automatico = false`.
 
+## Pantallas
+
+- **Cobros**: pestañas Para revisar / Por facturar / Errores / Facturados / No son venta, botón "Traer cobros" desde una fecha y "Facturar ahora".
+- **Facturas**: por mes, con total del mes, total de los últimos 12 meses contra el tope del monotributo, y PDF con QR de cada factura.
+- **Configuración**: datos, archivos de ARCA, credencial de Mercado Pago, prueba/real, facturación automática, y "Probar conexión con ARCA".
+
 ## Estado
 
 - [x] Conexión con ARCA, lectura de Mercado Pago, lógica de facturación, base de datos (con pruebas)
-- [ ] Pantallas: ingreso, cargar certificados y token, lista de cobros para revisar, facturas con PDF
-- [ ] Tarea programada en Supabase
+- [x] Pantallas
+- [ ] Publicar: proyecto en Supabase + Vercel
+- [ ] Tarea programada (`supabase/tarea-automatica.sql`)
 - [ ] Prueba real en homologación con los certificados de Martín y Sofi
 - [ ] Pasar a producción

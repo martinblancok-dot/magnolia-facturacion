@@ -1,0 +1,138 @@
+import Link from "next/link";
+import { facturarAhora, marcarCobro, traerCobrosDesde } from "../acciones";
+import { BotonAccion, Formulario } from "../componentes";
+import { diaArgentina, restarDias } from "@/lib/fechas";
+import { fechaCorta, hora, ORIGENES, pesos } from "@/lib/formato";
+import { clienteServidor } from "@/lib/supabase/almacen";
+import { usuarioActual } from "@/lib/supabase/sesion";
+
+const PESTANAS = [
+  { id: "revisar", texto: "Para revisar", ayuda: "Transferencias y otros cobros: decidí si son ventas." },
+  { id: "a_facturar", texto: "Por facturar", ayuda: "Ventas confirmadas que todavía no tienen factura." },
+  { id: "error", texto: "Errores", ayuda: "ARCA rechazó la factura o no respondió." },
+  { id: "facturado", texto: "Facturados", ayuda: "Ya tienen factura." },
+  { id: "no_es_venta", texto: "No son venta", ayuda: "Se marcaron como que no hay que facturarlos." },
+] as const;
+
+type Fila = {
+  id: string; dia: string; fecha_hora: string; importe: number; origen: string;
+  detalle: string | null; estado: string; mensaje: string | null;
+};
+
+export default async function Cobros({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
+  const u = await usuarioActual();
+  const db = clienteServidor();
+  const ver = (await searchParams).ver ?? "revisar";
+  const pestana = PESTANAS.find((p) => p.id === ver) ?? PESTANAS[0];
+
+  const [{ data: filas }, { data: todos }, { data: emisor }] = await Promise.all([
+    db.from("cobros").select("*").eq("usuario_id", u.id).eq("estado", pestana.id).order("fecha_hora", { ascending: false }).limit(300),
+    db.from("cobros").select("estado").eq("usuario_id", u.id).in("estado", ["revisar", "a_facturar", "error"]),
+    db.from("emisores").select("ambiente, facturar_automatico").eq("usuario_id", u.id).maybeSingle(),
+  ]);
+  const cuenta = (estado: string) => (todos ?? []).filter((t) => t.estado === estado).length;
+
+  return (
+    <div className="space-y-6">
+      {!emisor && (
+        <div className="tarjeta border-amber-300 bg-amber-50">
+          Todavía no cargaste tus datos. Andá a <Link href="/configuracion" className="font-semibold underline">Configuración</Link> para empezar.
+        </div>
+      )}
+      {emisor?.ambiente === "homologacion" && (
+        <p className="rounded-lg bg-blue-50 px-4 py-2 text-sm text-blue-900">
+          Modo <b>prueba</b>: las facturas que se emitan no tienen validez.
+        </p>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="tarjeta">
+          <h2 className="font-semibold">Traer cobros de Mercado Pago</h2>
+          <p className="ayuda">El sistema lo hace solo cada 15 minutos. Usalo para traer cobros viejos.</p>
+          <Formulario accion={traerCobrosDesde} boton="Traer cobros">
+            <label className="etiqueta mt-3" htmlFor="desde">Desde el día</label>
+            <input id="desde" name="desde" type="date" className="campo" defaultValue={restarDias(diaArgentina(), 7)} max={diaArgentina()} />
+          </Formulario>
+        </div>
+        <div className="tarjeta">
+          <h2 className="font-semibold">Facturar</h2>
+          <p className="ayuda">
+            {emisor?.facturar_automatico
+              ? "La facturación automática está prendida: las ventas se facturan solas."
+              : "La facturación automática está apagada. Podés facturar a mano lo que está en “Por facturar”."}
+          </p>
+          <div className="mt-4">
+            <BotonAccion accion={facturarAhora} texto={`Facturar ahora (${cuenta("a_facturar")})`} />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="flex flex-wrap gap-1 border-b border-linea">
+          {PESTANAS.map((p) => {
+            const n = ["revisar", "a_facturar", "error"].includes(p.id) ? cuenta(p.id) : null;
+            const activa = p.id === pestana.id;
+            return (
+              <Link key={p.id} href={`/?ver=${p.id}`}
+                className={`-mb-px rounded-t-lg px-4 py-2 text-sm ${activa ? "border border-b-white border-linea bg-white font-semibold" : "text-suave hover:text-tinta"}`}>
+                {p.texto}
+                {n ? <span className={`ml-2 rounded-full px-2 text-xs ${p.id === "error" ? "bg-red-100 text-red-800" : "bg-marca-claro text-marca"}`}>{n}</span> : null}
+              </Link>
+            );
+          })}
+        </div>
+        <div className="rounded-b-2xl border border-t-0 border-linea bg-white">
+          <p className="px-6 pt-4 text-sm text-suave">{pestana.ayuda}</p>
+          {(filas ?? []).length === 0 ? (
+            <p className="px-6 py-10 text-center text-suave">No hay cobros acá.</p>
+          ) : (
+            <table className="mt-2 w-full text-sm">
+              <thead className="text-left text-suave">
+                <tr className="border-b border-linea">
+                  <th className="px-6 py-2 font-medium">Fecha</th>
+                  <th className="py-2 font-medium">Origen</th>
+                  <th className="py-2 font-medium">Detalle</th>
+                  <th className="py-2 text-right font-medium">Importe</th>
+                  <th className="px-6 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(filas as Fila[]).map((c) => (
+                  <tr key={c.id} className="border-b border-linea last:border-0 align-top">
+                    <td className="px-6 py-3 whitespace-nowrap">{fechaCorta(c.dia)} <span className="text-suave">{hora(c.fecha_hora)}</span></td>
+                    <td className="py-3">{ORIGENES[c.origen] ?? c.origen}</td>
+                    <td className="py-3 text-suave">
+                      {c.detalle || "—"}
+                      {c.mensaje && <div className="mt-1 text-red-700">{c.mensaje}</div>}
+                    </td>
+                    <td className="py-3 text-right font-semibold whitespace-nowrap">{pesos(Number(c.importe))}</td>
+                    <td className="px-6 py-3">
+                      <div className="flex justify-end gap-2">
+                        {["revisar", "error", "no_es_venta"].includes(c.estado) && (
+                          <form action={marcarCobro.bind(null, c.id, "a_facturar")}>
+                            <button className="boton-borde !px-3 !py-1">{c.estado === "error" ? "Reintentar" : "Es venta"}</button>
+                          </form>
+                        )}
+                        {["revisar", "error", "a_facturar"].includes(c.estado) && (
+                          <form action={marcarCobro.bind(null, c.id, "no_es_venta")}>
+                            <button className="text-sm text-suave underline">No es venta</button>
+                          </form>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        {pestana.id === "error" && (filas ?? []).some((c) => (c as Fila).mensaje?.startsWith("[VERIFICAR")) && (
+          <p className="mt-3 text-sm text-red-800">
+            Los marcados “[VERIFICAR EN ARCA]” pueden haberse facturado igual. Antes de reintentar, fijate en
+            “Comprobantes en línea → Consultas” si existe la factura.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
