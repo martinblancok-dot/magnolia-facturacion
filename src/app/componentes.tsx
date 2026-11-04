@@ -61,6 +61,7 @@ export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<v
   const items = [
     { href: "/", texto: "Cobros" },
     { href: "/facturas", texto: "Facturas" },
+    { href: "/monotributo", texto: "Monotributo" },
     { href: "/configuracion", texto: "Configuración" },
   ];
   return (

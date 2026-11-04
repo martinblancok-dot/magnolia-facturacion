@@ -8,6 +8,7 @@ import { pedirTicket } from "@/lib/arca/wsaa";
 import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
 import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
+import { leerMisComprobantes } from "@/lib/mis-comprobantes";
 import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
 import { clienteUsuario, usuarioActual } from "@/lib/supabase/sesion";
@@ -201,6 +202,36 @@ export async function facturarAhora(): Promise<Mensaje> {
         (r.quedan ? ` Quedan ${r.quedan}: tocá de nuevo "Facturar ahora".` : "") +
         (r.errores.length ? ` Con problemas: ${r.errores.length} (mirá la pestaña Errores).` : ""),
     };
+  } catch (err) {
+    return { ok: false, texto: (err as Error).message };
+  }
+}
+
+// ---------- Monotributo ----------
+
+export async function importarMisComprobantes(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  const u = await usuarioActual();
+  const db = clienteServidor();
+  const archivos = form.getAll("archivo").filter((f): f is File => typeof f !== "string" && f.size > 0);
+  if (archivos.length === 0) return { ok: false, texto: "Elegí el archivo que bajaste de Mis Comprobantes." };
+  let total = 0, ignoradas = 0;
+  try {
+    for (const f of archivos) {
+      if (f.size > 4_000_000) return { ok: false, texto: `"${f.name}" es demasiado grande. Bajalo en períodos más cortos.` };
+      const r = await leerMisComprobantes(Buffer.from(await f.arrayBuffer()), f.name);
+      ignoradas += r.ignoradas;
+      for (let i = 0; i < r.comprobantes.length; i += 500) {
+        const filas = r.comprobantes.slice(i, i + 500).map((c) => ({
+          usuario_id: u.id, tipo: c.tipo, tipo_texto: c.tipoTexto, punto_venta: c.puntoVenta,
+          numero_desde: c.desde, numero_hasta: c.hasta, fecha: c.fecha, importe: c.importe, cae: c.cae,
+        }));
+        const { error } = await db.from("comprobantes_arca").upsert(filas, { onConflict: "usuario_id,tipo,punto_venta,numero_desde" });
+        if (error) throw new Error(error.message);
+      }
+      total += r.comprobantes.length;
+    }
+    revalidatePath("/monotributo");
+    return { ok: true, texto: `Se cargaron ${total} comprobantes.` + (ignoradas ? ` (${ignoradas} filas sin datos se saltearon)` : "") + " Si subís el mismo período otra vez no se duplica." };
   } catch (err) {
     return { ok: false, texto: (err as Error).message };
   }
