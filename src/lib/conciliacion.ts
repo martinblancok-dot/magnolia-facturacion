@@ -2,10 +2,10 @@
 // para no facturar dos veces la misma venta.
 //
 // Regla: mismo importe (al centavo) y factura emitida el mismo día del cobro
-// o hasta DIAS_DESPUES días después. Cada comprobante se usa una sola vez.
+// o hasta DIAS_DESPUES días después (45). Cada comprobante se usa una sola vez.
 // Si hay varios candidatos, se elige el de fecha más cercana.
 
-export const DIAS_DESPUES = 3;
+export const DIAS_DESPUES = 45; // a veces se facturaba a fin de mes, con 35-40 días de atraso
 
 export interface CobroAConciliar {
   id: string;

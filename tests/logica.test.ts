@@ -138,11 +138,25 @@ describe("conciliación con facturas a mano", () => {
   it("cruza por importe exacto y fecha cercana, una factura por cobro", () => {
     const r = conciliar(
       [{ id: "a", dia: "2026-10-10", importe: 15000 }, { id: "b", dia: "2026-10-10", importe: 15000 }, { id: "c", dia: "2026-10-12", importe: 8000 }],
-      [{ id: "x", fecha: "2026-10-11", importe: 15000 }, { id: "y", fecha: "2026-10-20", importe: 8000 }, { id: "z", fecha: "2026-10-10", importe: 15000 }],
+      [{ id: "x", fecha: "2026-10-11", importe: 15000 }, { id: "y", fecha: "2026-12-20", importe: 8000 }, { id: "z", fecha: "2026-10-10", importe: 15000 }],
     );
-    expect(r).toEqual([{ cobroId: "a", comprobanteId: "z" }, { cobroId: "b", comprobanteId: "x" }]); // "c": factura muy lejos
+    expect(r).toEqual([{ cobroId: "a", comprobanteId: "z" }, { cobroId: "b", comprobanteId: "x" }]); // "c": factura a más de 45 días
   });
   it("no usa facturas anteriores al cobro ni notas de crédito", () => {
     expect(conciliar([{ id: "a", dia: "2026-10-10", importe: 100 }], [{ id: "x", fecha: "2026-10-09", importe: 100 }, { id: "y", fecha: "2026-10-10", importe: -100 }])).toEqual([]);
+  });
+});
+
+describe("conciliación con atraso de fin de mes", () => {
+  it("encuentra la factura hecha 17 días después (caso real de Sofi)", () => {
+    expect(conciliar([{ id: "t", dia: "2026-10-17", importe: 57276 }], [{ id: "f", fecha: "2026-11-03", importe: 57276 }]))
+      .toEqual([{ cobroId: "t", comprobanteId: "f" }]);
+  });
+  it("con dos cobros iguales, cada uno se lleva la factura más cercana", () => {
+    const r = conciliar(
+      [{ id: "a", dia: "2026-10-01", importe: 5000 }, { id: "b", dia: "2026-10-25", importe: 5000 }],
+      [{ id: "x", fecha: "2026-11-02", importe: 5000 }, { id: "y", fecha: "2026-10-03", importe: 5000 }],
+    );
+    expect(r).toEqual([{ cobroId: "a", comprobanteId: "y" }, { cobroId: "b", comprobanteId: "x" }]);
   });
 });
