@@ -61,6 +61,7 @@ const ICONOS: Record<string, React.ReactNode> = {
   "/ventas": <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
   "/productos": <><path d="M3 7l9-4 9 4-9 4z" /><path d="M3 7v10l9 4 9-4V7" /></>,
   "/cobros": <path d="M3 7h18M3 12h18M3 17h12" />,
+  "/stock": <><path d="M4 7h3M4 12h3M4 17h3" /><path d="M10 5v14M13 5v14M17 5v14M20 5v14" /></>,
   "/mas": <><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></>,
 };
 
@@ -70,15 +71,16 @@ export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<v
     { href: "/caja", texto: "Caja" },
     { href: "/ventas", texto: "Ventas" },
     { href: "/productos", texto: "Productos" },
+    { href: "/stock", texto: "Stock" },
     { href: "/cobros", texto: "Cobros" },
     { href: "/facturas", texto: "Facturas" },
     { href: "/monotributo", texto: "Monotributo" },
     { href: "/configuracion", texto: "Configuración" },
   ];
-  const abajo = ["/caja", "/ventas", "/productos", "/cobros", "/mas"];
+  const abajo = ["/caja", "/ventas", "/stock", "/cobros", "/mas"];
   const nombres: Record<string, string> = { "/mas": "Más" };
   const activo = (href: string) =>
-    href === "/mas" ? ["/mas", "/facturas", "/monotributo", "/configuracion"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
+    href === "/mas" ? ["/mas", "/productos", "/facturas", "/monotributo", "/configuracion"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-linea bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur">

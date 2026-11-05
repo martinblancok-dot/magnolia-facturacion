@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 const LINKS = [
+  { href: "/stock", t: "Stock", d: "Cargar mercadería y controlar con el lector" },
   { href: "/cobros", t: "Cobros de Mercado Pago", d: "Posnet, QR y transferencias para facturar" },
   { href: "/facturas", t: "Facturas", d: "Facturas emitidas y sus PDF" },
   { href: "/productos", t: "Productos", d: "Catálogo, precios e importar Precios Deco" },

@@ -288,7 +288,7 @@ export function Caja() {
             <p className="text-4xl font-semibold">{pesos(t.total)}</p>
             {items.length > 0 && (
               <p className="mt-1 text-sm text-suave">
-                Efectivo {pesos(t.efectivo)} · Lista {pesos(t.lista)}
+                Efectivo {pesos(t.efectivo)} · Transf./débito/1 pago {pesos(t.diez)} · Lista {pesos(t.lista)}
               </p>
             )}
           </div>
@@ -296,7 +296,7 @@ export function Caja() {
           <div className="grid grid-cols-2 gap-2">
             {MEDIOS.map((m) => (
               <button key={m.id} onClick={() => setMedio(m.id)}
-                className={`rounded-xl border px-3 py-3 text-sm font-semibold ${medio === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"} ${m.id === "qr" ? "col-span-2" : ""}`}>
+                className={`rounded-xl border px-3 py-3 text-sm font-semibold ${medio === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"} `}>
                 {m.nombre}
               </button>
             ))}

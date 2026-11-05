@@ -1,14 +1,20 @@
 // Lógica de la caja (se usa en el navegador y en el servidor).
 
-export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "qr";
+export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr";
+export type TipoPrecio = "efectivo" | "diez" | "lista";
 
-export const MEDIOS: { id: MedioPago; nombre: string; precio: "efectivo" | "lista" }[] = [
+// efectivo: precio con 15% de la planilla · diez: 10% sobre lista · lista: sin descuento
+export const MEDIOS: { id: MedioPago; nombre: string; precio: TipoPrecio }[] = [
   { id: "efectivo", nombre: "Efectivo", precio: "efectivo" },
-  { id: "transferencia", nombre: "Transferencia", precio: "lista" },
-  { id: "debito", nombre: "Débito", precio: "lista" },
-  { id: "credito", nombre: "Crédito", precio: "lista" },
+  { id: "transferencia", nombre: "Transferencia", precio: "diez" },
+  { id: "debito", nombre: "Débito", precio: "diez" },
+  { id: "credito", nombre: "Crédito 1 pago", precio: "diez" },
+  { id: "cuotas", nombre: "Crédito en cuotas", precio: "lista" },
   { id: "qr", nombre: "QR Mercado Pago", precio: "lista" },
 ];
+
+/** 10% de descuento sobre lista, redondeado a $50 (como los precios de la planilla). */
+export const conDiez = (lista: number) => Math.round((lista * 0.9) / 50) * 50;
 
 /** Producto tal como viaja a la caja: [id, barcode, sku, nombre, lista, efectivo, categoria] */
 export type ProductoCaja = [string, string, string, string, number, number, string | null];
@@ -27,18 +33,21 @@ export const redondear = (n: number) => Math.round(n * 100) / 100;
 
 export function precioUnitario(item: ItemCarrito, medio: MedioPago): number {
   const m = MEDIOS.find((x) => x.id === medio)!;
-  return m.precio === "efectivo" ? item.efectivo : item.lista;
+  if (m.precio === "efectivo") return item.efectivo;
+  if (m.precio === "diez") return conDiez(item.lista);
+  return item.lista;
 }
 
 export function totales(items: ItemCarrito[], medio: MedioPago) {
-  let total = 0, lista = 0, efectivo = 0, unidades = 0;
+  let total = 0, lista = 0, efectivo = 0, diez = 0, unidades = 0;
   for (const it of items) {
     total += precioUnitario(it, medio) * it.cantidad;
     lista += it.lista * it.cantidad;
     efectivo += it.efectivo * it.cantidad;
+    diez += conDiez(it.lista) * it.cantidad;
     unidades += it.cantidad;
   }
-  return { total: redondear(total), lista: redondear(lista), efectivo: redondear(efectivo), unidades };
+  return { total: redondear(total), lista: redondear(lista), efectivo: redondear(efectivo), diez: redondear(diez), unidades };
 }
 
 export const normalizar = (s: string) =>

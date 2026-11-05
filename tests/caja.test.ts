@@ -32,9 +32,12 @@ describe("carrito y precios", () => {
     expect(items).toHaveLength(2);
     expect(items[0].cantidad).toBe(2);
   });
-  it("efectivo usa el precio con 15%, tarjeta el de lista", () => {
+  it("efectivo 15%, transferencia/débito/1 pago 10% redondeado a $50, cuotas y QR lista", () => {
     expect(totales(items, "efectivo").total).toBe(11900 * 2 + 12660);
-    expect(totales(items, "credito").total).toBe(14000 * 2 + 14890);
+    expect(totales(items, "transferencia").total).toBe(12600 * 2 + 13400); // 14000*0.9=12600 · 14890*0.9=13401 → 13400
+    expect(totales(items, "debito").total).toBe(totales(items, "credito").total);
+    expect(totales(items, "cuotas").total).toBe(14000 * 2 + 14890);
+    expect(totales(items, "qr").total).toBe(14000 * 2 + 14890);
     expect(totales(items, "efectivo").lista).toBe(14000 * 2 + 14890);
   });
   it("arma una venta válida para subir", () => {
@@ -44,7 +47,7 @@ describe("carrito y precios", () => {
     expect(validarVenta(v)).toBeNull();
   });
   it("el servidor rechaza una venta con el total alterado", () => {
-    const v = armarVenta(items, "debito", 2, "t1", null, "0d9c2a4e-7b1f-4c55-9a3e-6f1d2b3c4d5e");
+    const v = armarVenta(items, "cuotas", 2, "t1", null, "0d9c2a4e-7b1f-4c55-9a3e-6f1d2b3c4d5e");
     expect(validarVenta({ ...v, total: 1 })).toMatch(/total/);
     expect(validarVenta({ ...v, local_id: 9 })).toMatch(/local/);
   });
