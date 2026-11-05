@@ -57,26 +57,33 @@ export function BotonAccion({ accion, texto, borde }: { accion: () => Promise<Me
 }
 
 const ICONOS: Record<string, React.ReactNode> = {
-  "/": <path d="M3 7h18M3 12h18M3 17h12" />,
-  "/facturas": <><path d="M6 3h9l3 3v15H6z" /><path d="M9 10h6M9 14h6M9 18h4" /></>,
-  "/monotributo": <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-  "/configuracion": <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" /></>,
+  "/caja": <><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M7 20h10M12 16v4M7 9h4" /></>,
+  "/ventas": <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
+  "/productos": <><path d="M3 7l9-4 9 4-9 4z" /><path d="M3 7v10l9 4 9-4V7" /></>,
+  "/cobros": <path d="M3 7h18M3 12h18M3 17h12" />,
+  "/mas": <><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></>,
 };
 
 export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<void> }) {
   const ruta = usePathname();
   const items = [
-    { href: "/", texto: "Cobros" },
+    { href: "/caja", texto: "Caja" },
+    { href: "/ventas", texto: "Ventas" },
+    { href: "/productos", texto: "Productos" },
+    { href: "/cobros", texto: "Cobros" },
     { href: "/facturas", texto: "Facturas" },
     { href: "/monotributo", texto: "Monotributo" },
-    { href: "/configuracion", texto: "Configuración", corto: "Ajustes" },
+    { href: "/configuracion", texto: "Configuración" },
   ];
-  const activo = (href: string) => (href === "/" ? ruta === "/" : ruta.startsWith(href));
+  const abajo = ["/caja", "/ventas", "/productos", "/cobros", "/mas"];
+  const nombres: Record<string, string> = { "/mas": "Más" };
+  const activo = (href: string) =>
+    href === "/mas" ? ["/mas", "/facturas", "/monotributo", "/configuracion"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-linea bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur">
-        <nav className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3 md:px-6">
-          <span className="font-semibold text-marca">Magnolia<span className="hidden sm:inline"> · Facturación</span></span>
+        <nav className="mx-auto flex max-w-6xl items-center gap-5 px-4 py-3 md:px-6">
+          <span className="font-semibold text-marca">Magnolia</span>
           {items.map((i) => (
             <Link key={i.href} href={i.href}
               className={`hidden text-sm md:inline ${activo(i.href) ? "font-semibold text-tinta" : "text-suave hover:text-tinta"}`}>
@@ -90,14 +97,14 @@ export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<v
         </nav>
       </header>
       {/* Barra de abajo en celular */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t border-linea bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-        {items.map((i) => (
-          <Link key={i.href} href={i.href}
-            className={`flex flex-col items-center gap-1 py-2 text-[11px] ${activo(i.href) ? "font-semibold text-marca" : "text-suave"}`}>
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={activo(i.href) ? 2.2 : 1.7} strokeLinecap="round" strokeLinejoin="round">
-              {ICONOS[i.href]}
+      <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-linea bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+        {abajo.map((href) => (
+          <Link key={href} href={href}
+            className={`flex flex-col items-center gap-1 py-2 text-[11px] ${activo(href) ? "font-semibold text-marca" : "text-suave"}`}>
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={activo(href) ? 2.2 : 1.7} strokeLinecap="round" strokeLinejoin="round">
+              {ICONOS[href]}
             </svg>
-            {i.corto ?? i.texto}
+            {nombres[href] ?? items.find((i) => i.href === href)?.texto}
           </Link>
         ))}
       </nav>

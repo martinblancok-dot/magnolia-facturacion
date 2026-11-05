@@ -9,6 +9,7 @@ import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
 import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
 import { leerMisComprobantes } from "@/lib/mis-comprobantes";
+import { leerPreciosDeco, type Conflicto } from "@/lib/catalogo";
 import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
 import { clienteUsuario, usuarioActual } from "@/lib/supabase/sesion";
@@ -169,7 +170,7 @@ export async function marcarCobro(id: string, nuevo: "a_facturar" | "no_es_venta
   // Si sale de "ya facturado" es porque no era esa factura: se suelta y no se vuelve a cruzar.
   const extra = c.estado === "ya_facturado" ? { comprobante_id: null, no_conciliar: true } : {};
   await db.from("cobros").update({ estado: nuevo, mensaje: null, ...extra }).eq("id", id);
-  revalidatePath("/");
+  revalidatePath("/cobros");
 }
 
 export async function traerCobrosDesde(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
@@ -183,7 +184,7 @@ export async function traerCobrosDesde(_prev: Mensaje | null, form: FormData): P
     const cobros = await traerCobros(e.mpToken, `${desde}T00:00:00.000-03:00`, new Date().toISOString());
     const nuevos = await guardarCobros(db, u.id, cobros);
     const yaFacturados = await conciliarUsuario(db, u.id, e.puntoVenta);
-    revalidatePath("/");
+    revalidatePath("/cobros");
     return {
       ok: true,
       texto: `Se revisaron ${cobros.length} cobros; ${nuevos} eran nuevos.` +
@@ -202,7 +203,7 @@ export async function facturarAhora(): Promise<Mensaje> {
   try {
     await conciliarUsuario(db, u.id, e.puntoVenta);
     const r = await facturarPendientes(e, almacenSupabase(db), arca);
-    revalidatePath("/");
+    revalidatePath("/cobros");
     revalidatePath("/facturas");
     if (r.emitidas === 0 && r.errores.length === 0) return { ok: true, texto: "No había cobros para facturar." };
     return {
@@ -242,9 +243,56 @@ export async function importarMisComprobantes(_prev: Mensaje | null, form: FormD
     const { data: em } = await db.from("emisores").select("punto_venta").eq("usuario_id", u.id).maybeSingle();
     const yaFacturados = await conciliarUsuario(db, u.id, em?.punto_venta ?? null);
     revalidatePath("/monotributo");
-    revalidatePath("/");
+    revalidatePath("/cobros");
     return { ok: true, texto: `Se cargaron ${total} comprobantes.` + (yaFacturados ? ` ${yaFacturados} cobros pendientes ya tenían esa factura y se apartaron.` : "") + (ignoradas ? ` (${ignoradas} filas sin datos se saltearon)` : "") + " Si subís el mismo período otra vez no se duplica." };
   } catch (err) {
     return { ok: false, texto: (err as Error).message };
   }
+}
+
+// ---------- Catálogo ----------
+
+export interface ResultadoImportacion extends Mensaje {
+  conflictos?: Conflicto[];
+}
+
+export async function importarCatalogo(_prev: ResultadoImportacion | null, form: FormData): Promise<ResultadoImportacion> {
+  await usuarioActual();
+  const db = clienteServidor();
+  const f = form.get("archivo");
+  if (!f || typeof f === "string" || f.size === 0) return { ok: false, texto: "Elegí el Excel de Precios Deco." };
+  if (f.size > 4_000_000) return { ok: false, texto: "El archivo es demasiado grande." };
+  try {
+    const r = await leerPreciosDeco(Buffer.from(await f.arrayBuffer()));
+    if (r.productos.length === 0) return { ok: false, texto: "No encontré pestañas de proveedores con Barcode y Precio sugerido. ¿Es el Excel de Precios Deco?" };
+
+    const ahora = new Date().toISOString();
+    for (let i = 0; i < r.productos.length; i += 500) {
+      const filas = r.productos.slice(i, i + 500).map((p) => ({
+        barcode: p.barcode, sku: p.sku, nombre: p.nombre, categoria: p.categoria, proveedor: p.proveedor,
+        costo: p.costo, precio_lista: p.precio_lista, precio_efectivo: p.precio_efectivo, activo: true, actualizado_en: ahora,
+      }));
+      const { error } = await db.from("productos").upsert(filas, { onConflict: "barcode" });
+      if (error) throw new Error(error.message);
+    }
+    revalidatePath("/productos");
+    return {
+      ok: true,
+      texto: `Catálogo actualizado: ${r.productos.length} productos de ${r.hojas.length} pestañas.` +
+        (r.conflictos.length ? ` Hay ${r.conflictos.length} códigos de barras repetidos para corregir en la planilla (abajo).` : ""),
+      conflictos: r.conflictos,
+    };
+  } catch (err) {
+    return { ok: false, texto: (err as Error).message };
+  }
+}
+
+// ---------- Ventas ----------
+
+export async function anularVenta(id: string): Promise<Mensaje> {
+  const u = await usuarioActual();
+  const { data, error } = await clienteServidor().rpc("anular_venta", { venta: id, usuario: u.id });
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/ventas");
+  return data ? { ok: true, texto: "Venta anulada y stock devuelto." } : { ok: false, texto: "Ya estaba anulada." };
 }

@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Magnolia · Facturación",
-  description: "Facturación automática de cobros de Mercado Pago",
+  title: "Magnolia",
+  description: "Caja, ventas y facturación de Magnolia",
   appleWebApp: { capable: true, title: "Magnolia", statusBarStyle: "default" },
 };
 

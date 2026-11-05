@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Magnolia · Facturación",
+    name: "Magnolia",
     short_name: "Magnolia",
     description: "Facturación automática de cobros de Mercado Pago",
-    start_url: "/",
+    start_url: "/caja",
     display: "standalone",
     background_color: "#faf7f2",
     theme_color: "#6b4a3a",

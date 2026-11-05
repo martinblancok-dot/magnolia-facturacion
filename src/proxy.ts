@@ -15,6 +15,9 @@ export async function proxy(request: NextRequest) {
     },
   });
   const { data } = await sb.auth.getUser();
+  if (!data.user && request.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "sin sesión" }, { status: 401 });
+  }
   if (!data.user && !request.nextUrl.pathname.startsWith("/ingresar")) {
     return NextResponse.redirect(new URL("/ingresar", request.url));
   }
@@ -23,5 +26,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Todo menos la tarea automática y los archivos estáticos
-  matcher: ["/((?!api/procesar|_next/static|_next/image|manifest.webmanifest|icon|apple-icon|icono-).*)"],
+  matcher: ["/((?!api/procesar|_next/static|_next/image|manifest.webmanifest|sw.js|icon|apple-icon|icono-).*)"],
 };
