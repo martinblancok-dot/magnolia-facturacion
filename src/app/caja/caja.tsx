@@ -299,6 +299,14 @@ export function Caja() {
     [catalogo, textoBuscado],
   );
 
+  // Producto marcado en la lista (con ↑ ↓); el SKU exacto viene marcado
+  const [marcado, setMarcado] = useState(-1);
+  const verLista = busqueda.trim().length >= 2 && resultado.resultados.length > 0 && !(resultado.exacto && resultado.resultados.length === 1);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMarcado(resultado.exacto ? 0 : -1);
+  }, [resultado]);
+
   const sumar = (p: ProductoCaja) => {
     setItems((it) => agregar(it, p, cantidadPedida));
     setModoGc(false);
@@ -310,6 +318,7 @@ export function Caja() {
   const alEnter = () => {
     const leido = busqueda.trim().toUpperCase();
     if (/^GC[0-9A-F]{8}$/.test(leido)) { setBusqueda(""); cargarGc(leido.slice(2)); return; } // escanearon una gift card
+    if (verLista && marcado >= 0 && resultado.resultados[marcado]) return sumar(resultado.resultados[marcado]);
     if (resultado.exacto) return sumar(resultado.exacto);
     if (resultado.resultados.length === 1) return sumar(resultado.resultados[0]);
     if (textoBuscado.trim() && resultado.resultados.length === 0) setAviso({ ok: false, texto: `No encontré "${textoBuscado.trim()}". Probá con el nombre o cargalo como "Varios".` });
@@ -540,17 +549,19 @@ export function Caja() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") { e.preventDefault(); alEnter(); }
                 if (e.key === "Escape") setBusqueda("");
+                if (verLista && e.key === "ArrowDown") { e.preventDefault(); setMarcado((m) => Math.min(m + 1, resultado.resultados.length - 1)); }
+                if (verLista && e.key === "ArrowUp") { e.preventDefault(); setMarcado((m) => Math.max(m - 1, 0)); }
               }}
               placeholder={cargandoCat && !catalogo ? "Cargando productos…" : "Escaneá o buscá un producto"}
               className="w-full rounded-2xl border-2 border-linea bg-white py-3.5 pr-4 pl-12 text-lg shadow-sm outline-none transition focus:border-marca"
               autoComplete="off"
               inputMode="search"
             />
-            {busqueda.trim().length >= 2 && !resultado.exacto && resultado.resultados.length > 0 && (
+            {verLista && (
               <ul className="absolute inset-x-0 top-full z-20 mt-2 max-h-[60vh] overflow-auto rounded-2xl border border-linea bg-white py-1 shadow-xl">
-                {resultado.resultados.map((p) => (
+                {resultado.resultados.map((p, i) => (
                   <li key={p[0]}>
-                    <button onClick={() => sumar(p)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-marca-claro">
+                    <button ref={i === marcado ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined} onClick={() => sumar(p)} onMouseEnter={() => setMarcado(i)} className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left ${i === marcado ? "bg-marca-claro" : ""}`}>
                       <span className="min-w-0"><span className="block truncate font-medium">{p[3]}</span><span className="text-xs text-suave">{p[2]}</span></span>
                       <span className="text-right text-sm whitespace-nowrap"><b>{pesos(p[5])}</b><span className="block text-xs text-suave">lista {pesos(p[4])}</span></span>
                     </button>

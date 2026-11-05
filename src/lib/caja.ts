@@ -66,17 +66,23 @@ export function buscar(catalogo: ProductoCaja[], texto: string, max = 30): { exa
   if (!t) return { exacto: null, resultados: [] };
   const tl = t.toLowerCase();
   const exacto = catalogo.find((p) => p[1] === t) ?? catalogo.find((p) => p[1].toLowerCase() === tl || p[2].toLowerCase() === tl) ?? null;
-  if (exacto) return { exacto, resultados: [exacto] };
+  // Código de barras completo (lector): no hace falta lista
+  if (exacto && exacto[1].toLowerCase() === tl) return { exacto, resultados: [exacto] };
   const palabras = normalizar(t).split(/\s+/).filter(Boolean);
-  const resultados: ProductoCaja[] = [];
+  const encontrados: ProductoCaja[] = [];
   for (const p of catalogo) {
+    if (p === exacto) continue;
     const hay = normalizar(`${p[3]} ${p[2]}`);
     if (palabras.every((w) => hay.includes(w))) {
-      resultados.push(p);
-      if (resultados.length >= max) break;
+      encontrados.push(p);
+      if (encontrados.length >= 300) break;
     }
   }
-  return { exacto: null, resultados };
+  // Primero los que tienen el SKU que empieza con lo escrito (HA8 → HA8, HA80, HA81…)
+  const empieza = (p: ProductoCaja) => (p[2].toLowerCase().startsWith(tl) ? 0 : 1);
+  encontrados.sort((a, b) => empieza(a) - empieza(b) || a[2].length - b[2].length);
+  const resultados = (exacto ? [exacto, ...encontrados] : encontrados).slice(0, max);
+  return { exacto, resultados };
 }
 
 export function agregar(items: ItemCarrito[], p: ProductoCaja, cantidad = 1): ItemCarrito[] {
