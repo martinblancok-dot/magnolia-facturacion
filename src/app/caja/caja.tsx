@@ -18,6 +18,7 @@ const pesos = (n: number) =>
 /** Una venta en curso. Puede haber varias abiertas a la vez (se atiende a más de una persona). */
 interface Carrito {
   id: string;
+  nombre?: string; // opcional: el nombre del cliente, para reconocerla rápido
   items: ItemCarrito[];
   medio: MedioPago;
   pagaCon: string;
@@ -65,6 +66,7 @@ export function Caja() {
   const [buscandoGc, setBuscandoGc] = useState(false);
   const [cobrando, setCobrando] = useState(false);
   const [confirmarAnular, setConfirmarAnular] = useState(false);
+  const [renombrando, setRenombrando] = useState<string | null>(null);
 
   // ---- Ventas abiertas (pestañas). Se guardan en la compu por si se recarga la página.
   const [carritos, setCarritos] = useState<Carrito[]>(() => [carritoNuevo()]);
@@ -367,23 +369,44 @@ export function Caja() {
     );
   }
 
+  const sugerenciasEfectivo = (() => {
+    if (!(aCobrar > 0)) return [];
+    const arriba = (m: number) => Math.ceil(aCobrar / m) * m;
+    return [...new Set([aCobrar, arriba(1000), arriba(5000), arriba(10000), arriba(20000)])].filter((x) => x >= aCobrar).slice(0, 4);
+  })();
+  const hayCarrito = items.length > 0 || modoGc;
+  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0 : items.length > 0 && (!conGc || !!gc));
+  const unidades = (x: Carrito) => x.items.reduce((s2, y) => s2 + y.cantidad, 0);
+  const totalDe = (x: Carrito) => x.modoGc ? (Number(x.montoGc.replace(/\./g, "").replace(",", ".")) || 0)
+    : totales(x.items, x.medio === "giftcard" ? x.gc?.medio_origen ?? "cuotas" : x.medio).total;
+
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className="flex h-dvh flex-col overflow-hidden bg-fondo">
       {zona}
-      <header className="flex items-center gap-3 border-b border-linea bg-white px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <Link href="/ventas" className="text-sm text-suave underline">Menú</Link>
-        <span className="font-semibold text-marca">Caja · {nombreLocal}</span>
-        <span className="hidden text-sm text-suave sm:inline">abierta {new Date(turno.abierta_en).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
-        <button className="text-sm text-suave underline" onClick={() => setMovForm((x) => !x)}>Retiro / gasto</button>
-        <Link href={`/caja/cierre?turno=${turno.id}`} className="text-sm font-semibold text-marca underline">Cerrar caja</Link>
-        <span className="ml-auto flex items-center gap-2 text-sm">
-          {estado === "sin-conexion" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-900">Sin internet</span>}
-          {estado === "sin-sesion" && <a href="/ingresar" className="rounded-full bg-red-100 px-2 py-0.5 text-red-800 underline">Iniciá sesión para subir ventas</a>}
+      {/* ---------- Barra superior ---------- */}
+      <header className="flex items-center gap-2 border-b border-linea bg-white px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-5">
+        <Link href="/ventas" aria-label="Menú" className="flex h-10 w-10 items-center justify-center rounded-lg text-suave hover:bg-marca-claro">
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </Link>
+        <div className="mr-auto leading-tight">
+          <p className="font-semibold text-marca">{nombreLocal}</p>
+          <p className="hidden text-xs text-suave sm:block">Caja abierta desde las {new Date(turno.abierta_en).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
+        </div>
+        <span className="hidden items-center gap-2 text-xs sm:flex">
+          {estado === "sin-conexion" && <span className="rounded-full bg-amber-100 px-2.5 py-1 font-semibold text-amber-900">● Sin internet</span>}
+          {estado === "sin-sesion" && <a href="/ingresar" className="rounded-full bg-red-100 px-2.5 py-1 font-semibold text-red-800 underline">Iniciá sesión para subir ventas</a>}
           {pendientes > 0
-            ? <span className="rounded-full bg-marca-claro px-2 py-0.5 text-marca">{pendientes} sin subir</span>
-            : estado === "conectado" && <span className="text-green-700">✓ Al día</span>}
+            ? <span className="rounded-full bg-marca-claro px-2.5 py-1 font-semibold text-marca">{pendientes} sin subir</span>
+            : estado === "conectado" && <span className="rounded-full bg-green-50 px-2.5 py-1 font-semibold text-green-800">✓ Al día</span>}
         </span>
+        <button className="boton-borde !border-linea !px-3 !text-tinta" onClick={() => setMovForm((x) => !x)}><span className="sm:hidden">Retiro</span><span className="hidden sm:inline">Retiro / gasto</span></button>
+        <Link href={`/caja/cierre?turno=${turno.id}`} className="boton-borde !px-3"><span className="sm:hidden">Cerrar</span><span className="hidden sm:inline">Cerrar caja</span></Link>
       </header>
+      {(estado !== "conectado" || pendientes > 0) && (
+        <p className="border-b border-linea bg-amber-50 px-4 py-1.5 text-center text-xs text-amber-900 sm:hidden">
+          {estado === "sin-conexion" ? "Sin internet · " : estado === "sin-sesion" ? "Iniciá sesión · " : ""}{pendientes > 0 ? `${pendientes} sin subir` : ""}
+        </p>
+      )}
 
       {movForm && (
         <form className="flex flex-wrap items-end gap-3 border-b border-linea bg-marca-claro px-4 py-3" onSubmit={(e) => {
@@ -394,31 +417,50 @@ export function Caja() {
           <label><span className="etiqueta">Tipo</span>
             <select name="tipo" className="campo"><option value="retiro">Retiro de efectivo</option><option value="gasto">Gasto (pago con la caja)</option><option value="ingreso">Ingreso de efectivo</option></select>
           </label>
-          <label className="w-36"><span className="etiqueta">Monto</span><input name="monto" className="campo" inputMode="decimal" required /></label>
+          <label className="w-36"><span className="etiqueta">Monto</span><input name="monto" className="campo" inputMode="decimal" required autoFocus /></label>
           <label className="min-w-40 flex-1"><span className="etiqueta">Motivo</span><input name="motivo" className="campo" placeholder="Ej: pago flete, retiro Martín" /></label>
           <button className="boton">Anotar</button>
           <button type="button" className="text-sm text-suave underline" onClick={() => setMovForm(false)}>Cancelar</button>
         </form>
       )}
 
-      <main className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_380px]">
-        {/* Izquierda: búsqueda y carrito */}
-        <section className="flex min-w-0 flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-3 md:p-4 lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+        {/* ---------- Izquierda: ventas abiertas, buscador y carrito ---------- */}
+        <section className="flex min-w-0 shrink-0 flex-col gap-3 lg:min-h-0 lg:shrink">
+          <div className="flex shrink-0 gap-2 overflow-x-auto pb-1">
             {carritos.map((x, i) => {
-              const tt = x.modoGc ? (Number(x.montoGc.replace(/\./g, "").replace(",", ".")) || 0) : totales(x.items, x.medio === "giftcard" ? x.gc?.medio_origen ?? "cuotas" : x.medio).total;
               const activa = x.id === c.id;
+              const titulo = x.nombre?.trim() || `Venta ${i + 1}`;
+              if (renombrando === x.id) {
+                return (
+                  <form key={x.id} className="flex shrink-0 items-center gap-1 rounded-xl border-2 border-marca bg-white px-2 py-1"
+                    onSubmit={(e) => { e.preventDefault(); const n = String(new FormData(e.currentTarget).get("n") ?? "").trim().slice(0, 24); setCarritos((cs) => cs.map((y) => (y.id === x.id ? { ...y, nombre: n } : y))); setRenombrando(null); enfocar(); }}>
+                    <input name="n" defaultValue={x.nombre ?? ""} placeholder="Nombre del cliente" autoFocus className="w-36 bg-transparent px-1 py-1 text-sm outline-none"
+                      onKeyDown={(e) => { if (e.key === "Escape") { setRenombrando(null); enfocar(); } }} onBlur={(e) => e.currentTarget.form?.requestSubmit()} />
+                    <button className="rounded-lg bg-marca px-2 py-1 text-xs font-semibold text-white">OK</button>
+                  </form>
+                );
+              }
               return (
-                <button key={x.id} onClick={() => irA(x.id)}
-                  className={`rounded-xl border px-3 py-2 text-sm ${activa ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>
-                  <b>Venta {i + 1}</b>{" "}
-                  <span className={activa ? "text-white/80" : "text-suave"}>{x.modoGc ? "🎁 gift card" : vacio(x) ? "vacía" : `${x.items.reduce((s, y) => s + y.cantidad, 0)} u. · ${pesos(tt)}`}</span>
-                </button>
+                <div key={x.id} className={`flex shrink-0 items-stretch overflow-hidden rounded-xl border transition ${activa ? "border-marca bg-marca text-white shadow-sm" : "border-linea bg-white hover:border-marca/50"}`}>
+                  <button onClick={() => irA(x.id)} onDoubleClick={() => setRenombrando(x.id)} className="py-2 pl-3 pr-2 text-left">
+                    <span className="block max-w-40 truncate text-sm font-semibold">{titulo}</span>
+                    <span className={`block text-xs ${activa ? "text-white/75" : "text-suave"}`}>
+                      {x.modoGc ? "🎁 Gift card" : vacio(x) ? "Vacía" : `${unidades(x)} u. · ${pesos(totalDe(x))}`}
+                    </span>
+                  </button>
+                  <button aria-label="Ponerle nombre" title="Ponerle nombre (por ejemplo, el del cliente)" onClick={() => setRenombrando(x.id)}
+                    className={`px-2 ${activa ? "text-white/70 hover:text-white" : "text-suave hover:text-marca"}`}>
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  </button>
+                </div>
               );
             })}
-            <button className="rounded-xl border border-dashed border-marca px-3 py-2 text-sm font-semibold text-marca" onClick={nuevaVenta}>+ Otra venta</button>
+            <button className="shrink-0 rounded-xl border border-dashed border-marca/60 px-4 text-sm font-semibold text-marca hover:bg-marca-claro" onClick={nuevaVenta}>+ Otra venta</button>
           </div>
-          <div className="relative">
+
+          <div className="relative shrink-0">
+            <svg viewBox="0 0 24 24" className="pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 text-suave" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             <input
               ref={entrada}
               autoFocus
@@ -428,17 +470,17 @@ export function Caja() {
                 if (e.key === "Enter") { e.preventDefault(); alEnter(); }
                 if (e.key === "Escape") setBusqueda("");
               }}
-              placeholder={cargandoCat && !catalogo ? "Cargando productos…" : "Escaneá o buscá por nombre / SKU (3*código = 3 unidades)"}
-              className="campo !py-3 !text-lg"
+              placeholder={cargandoCat && !catalogo ? "Cargando productos…" : "Escaneá o buscá un producto"}
+              className="w-full rounded-2xl border-2 border-linea bg-white py-3.5 pr-4 pl-12 text-lg shadow-sm outline-none transition focus:border-marca"
               autoComplete="off"
               inputMode="search"
             />
             {busqueda.trim().length >= 2 && !resultado.exacto && resultado.resultados.length > 0 && (
-              <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-96 overflow-auto rounded-xl border border-linea bg-white shadow-lg">
+              <ul className="absolute inset-x-0 top-full z-20 mt-2 max-h-[60vh] overflow-auto rounded-2xl border border-linea bg-white py-1 shadow-xl">
                 {resultado.resultados.map((p) => (
                   <li key={p[0]}>
                     <button onClick={() => sumar(p)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-marca-claro">
-                      <span className="min-w-0"><span className="block truncate">{p[3]}</span><span className="text-xs text-suave">{p[2]}</span></span>
+                      <span className="min-w-0"><span className="block truncate font-medium">{p[3]}</span><span className="text-xs text-suave">{p[2]}</span></span>
                       <span className="text-right text-sm whitespace-nowrap"><b>{pesos(p[5])}</b><span className="block text-xs text-suave">lista {pesos(p[4])}</span></span>
                     </button>
                   </li>
@@ -447,54 +489,70 @@ export function Caja() {
             )}
           </div>
           {!catalogo && !cargandoCat && (
-            <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
               No hay productos guardados en esta compu. Conectate a internet una vez para bajar el catálogo
               {estado === "sin-sesion" ? " (e iniciá sesión)" : ""}.
             </p>
           )}
 
-          <div className="flex-1 rounded-2xl border border-linea bg-white">
-            {items.length === 0 ? (
-              <p className="p-10 text-center text-suave">Escaneá un producto para empezar.</p>
+          <div className="flex min-h-56 flex-col overflow-hidden rounded-2xl border border-linea bg-white lg:min-h-0 lg:flex-1">
+            {modoGc ? (
+              <div className="m-auto max-w-sm p-8 text-center">
+                <p className="text-5xl">🎁</p>
+                <p className="mt-3 text-lg font-semibold">Venta de gift card</p>
+                <p className="mt-1 text-sm text-suave">Poné el valor a la derecha, elegí cómo paga y cobrá. Después imprimís la tarjeta con su código.</p>
+                <button className="mt-4 text-sm text-suave underline" onClick={() => { setModoGc(false); setMontoGc(""); enfocar(); }}>Volver a vender productos</button>
+              </div>
+            ) : items.length === 0 ? (
+              <div className="m-auto max-w-sm p-8 text-center text-suave">
+                <svg viewBox="0 0 24 24" className="mx-auto h-12 w-12 text-linea" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"><path d="M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12" /></svg>
+                <p className="mt-3 font-medium text-tinta">Escaneá un producto para empezar</p>
+                <p className="mt-1 text-sm">También podés buscar por nombre o SKU. Para varias unidades: <b>3*código</b>.</p>
+              </div>
             ) : (
-              <ul className="divide-y divide-linea">
-                {items.map((it, i) => (
-                  <li key={`${it.producto_id ?? "v"}-${i}`} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-medium sm:truncate">{it.nombre}</span>
-                      <span className="text-xs text-suave">{it.sku ?? "Varios"} · {pesos(precioUnitario(it, medioPrecio))} c/u</span>
-                    </span>
-                    <span className="flex items-center gap-3">
-                    <span className="flex items-center gap-1">
-                      <button aria-label="Uno menos" className="boton-borde !h-9 !w-9 justify-center !p-0"
-                        onClick={() => setItems((x) => x.flatMap((y, j) => (j !== i ? [y] : y.cantidad > 1 ? [{ ...y, cantidad: y.cantidad - 1 }] : [])))}>−</button>
-                      <span className="w-8 text-center font-semibold">{it.cantidad}</span>
-                      <button aria-label="Uno más" className="boton-borde !h-9 !w-9 justify-center !p-0"
-                        onClick={() => setItems((x) => x.map((y, j) => (j === i ? { ...y, cantidad: y.cantidad + 1 } : y)))}>+</button>
-                    </span>
-                    <span className="ml-auto w-28 text-right font-semibold">{pesos(precioUnitario(it, medioPrecio) * it.cantidad)}</span>
-                    <button aria-label="Quitar" className="px-2 text-xl text-suave hover:text-red-700" onClick={() => setItems((x) => x.filter((_, j) => j !== i))}>×</button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <div className="hidden grid-cols-[minmax(0,1fr)_120px_110px_36px] gap-3 border-b border-linea px-4 py-2 text-xs font-semibold tracking-wide text-suave uppercase sm:grid">
+                  <span>Producto</span><span className="text-center">Cantidad</span><span className="text-right">Subtotal</span><span />
+                </div>
+                <ul className="flex-1 divide-y divide-linea overflow-auto">
+                  {items.map((it, i) => (
+                    <li key={`${it.producto_id ?? "v"}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_120px_110px_36px]">
+                      <span className="min-w-0 basis-full sm:basis-auto">
+                        <span className="block font-medium sm:truncate">{it.nombre}</span>
+                        <span className="text-xs text-suave">{it.sku ?? "Varios"} · {pesos(precioUnitario(it, medioPrecio))} c/u</span>
+                      </span>
+                      <span className="flex items-center gap-1 sm:justify-center">
+                        <button aria-label="Uno menos" className="flex h-9 w-9 items-center justify-center rounded-lg border border-linea text-lg hover:border-marca"
+                          onClick={() => setItems((x) => x.flatMap((y, j) => (j !== i ? [y] : y.cantidad > 1 ? [{ ...y, cantidad: y.cantidad - 1 }] : [])))}>−</button>
+                        <span className="w-9 text-center text-lg font-semibold tabular-nums">{it.cantidad}</span>
+                        <button aria-label="Uno más" className="flex h-9 w-9 items-center justify-center rounded-lg border border-linea text-lg hover:border-marca"
+                          onClick={() => setItems((x) => x.map((y, j) => (j === i ? { ...y, cantidad: y.cantidad + 1 } : y)))}>+</button>
+                      </span>
+                      <span className="ml-auto text-right font-semibold tabular-nums sm:ml-0">{pesos(precioUnitario(it, medioPrecio) * it.cantidad)}</span>
+                      <button aria-label="Quitar" className="rounded-lg px-2 py-1 text-xl text-suave hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setItems((x) => x.filter((_, j) => j !== i))}>×</button>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="boton-borde" onClick={() => setVarios((v) => !v)}>+ Varios (sin código)</button>
-            <button className="boton-borde" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setUltima(null); setAviso(null); }}>🎁 Vender gift card</button>
+
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button className="boton-borde !border-linea !text-tinta" onClick={() => setVarios((v) => !v)}>+ Varios (sin código)</button>
+            {!modoGc && <button className="boton-borde !border-linea !text-tinta" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setUltima(null); setAviso(null); }}>🎁 Vender gift card</button>}
             {!vacio(c) && (confirmarAnular ? (
               <span className="ml-auto flex items-center gap-2 rounded-xl bg-red-50 px-3 py-1.5 text-sm text-red-800">
                 ¿Anular esta venta?
                 <button className="rounded-lg bg-red-700 px-3 py-1.5 font-semibold text-white" onClick={anularEnCurso}>Sí, anular</button>
-                <button className="underline" onClick={() => setConfirmarAnular(false)}>No</button>
+                <button className="px-1 underline" onClick={() => setConfirmarAnular(false)}>No</button>
               </span>
             ) : (
-              <button className="boton-borde ml-auto !border-red-300 !text-red-700" onClick={() => setConfirmarAnular(true)}>✕ Anular venta</button>
+              <button className="ml-auto rounded-lg px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50" onClick={() => setConfirmarAnular(true)}>✕ Anular venta</button>
             ))}
           </div>
           {varios && (
-            <form className="tarjeta flex flex-wrap items-end gap-3" onSubmit={(e) => {
+            <form className="tarjeta flex flex-wrap items-end gap-3 !p-4" onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
               const precio = Number(String(f.get("precio")).replace(/\./g, "").replace(",", "."));
@@ -505,135 +563,161 @@ export function Caja() {
               setModoGc(false);
               entrada.current?.focus();
             }}>
-              <label className="min-w-40 flex-1"><span className="etiqueta">Descripción</span><input name="nombre" className="campo" placeholder="Varios" /></label>
+              <label className="min-w-40 flex-1"><span className="etiqueta">Descripción</span><input name="nombre" className="campo" placeholder="Varios" autoFocus /></label>
               <label className="w-36"><span className="etiqueta">Precio lista</span><input name="precio" className="campo" inputMode="decimal" required /></label>
               <label className="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" name="descuento" defaultChecked /> 15% en efectivo</label>
               <button className="boton">Agregar</button>
+              <button type="button" className="pb-2 text-sm text-suave underline" onClick={() => setVarios(false)}>Cancelar</button>
             </form>
           )}
         </section>
 
-        {/* Derecha: cobro */}
-        <section className="tarjeta flex h-fit flex-col gap-4 lg:sticky lg:top-4">
-          {modoGc ? (
-            <div className="space-y-2 rounded-xl border border-marca bg-marca-claro p-3">
-              <p className="flex items-center justify-between font-semibold text-marca">🎁 Vender gift card
-                <button className="text-sm font-normal text-suave underline" onClick={() => { setModoGc(false); setMontoGc(""); }}>Cancelar</button></p>
-              <label className="block"><span className="etiqueta">Valor de la tarjeta</span>
-                <input value={montoGc} onChange={(e) => setMontoGc(e.target.value)} className="campo !text-2xl" inputMode="decimal" placeholder="0" autoFocus /></label>
-              <p className="text-xs text-suave">Se cobra el valor completo con el medio que elijas. Al usarla, los productos van al precio de ese medio (efectivo 15%, transferencia/débito/1 pago 10%).</p>
-            </div>
-          ) : (
-          <div>
-            <p className="text-sm text-suave">{t.unidades} {t.unidades === 1 ? "unidad" : "unidades"}</p>
-            <p className="text-4xl font-semibold">{pesos(t.total)}</p>
-            {items.length > 0 && !conGc && (
-              <p className="mt-1 text-sm text-suave">
-                Efectivo {pesos(t.efectivo)} · Transf./débito/1 pago {pesos(t.diez)} · Lista {pesos(t.lista)}
-              </p>
-            )}
-            {conGc && gc && <p className="mt-1 text-sm text-suave">Precio de {nombreMedio(gc.medio_origen).toLowerCase()}, como se pagó la gift card</p>}
-          </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-2">
-            {MEDIOS_CAJA.map((m) => (
-              <button key={m.id} onClick={() => { setMedio(m.id); setGc(null); }}
-                className={`rounded-xl border px-3 py-3 text-sm font-semibold ${medio === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"} `}>
-                {m.nombre}
-              </button>
-            ))}
-            {!modoGc && (
-              <button onClick={() => { setMedio("giftcard"); setAviso(null); }}
-                className={`rounded-xl border px-3 py-3 text-sm font-semibold ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>
-                🎁 Gift card
-              </button>
-            )}
-          </div>
-
-          {conGc && (
-            <div className="space-y-3 rounded-xl border border-linea p-3">
-              {!gc ? (
-                <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (codigoGc.trim()) cargarGc(codigoGc.trim()); }}>
-                  <input value={codigoGc} onChange={(e) => setCodigoGc(e.target.value)} className="campo uppercase" placeholder="Código de la gift card" autoFocus autoComplete="off" />
-                  <button className="boton" disabled={buscandoGc}>{buscandoGc ? "…" : "Buscar"}</button>
-                </form>
-              ) : (
-                <>
-                  <p className="flex justify-between text-sm"><span>Gift card <b>{gc.codigo}</b></span><span>Saldo <b>{pesos(gc.saldo)}</b></span></p>
-                  {cgc && items.length > 0 && (
-                    <>
-                      <p className="flex justify-between text-sm"><span>Se descuenta de la tarjeta</span><b>{pesos(cgc.usa)}</b></p>
-                      {cgc.falta > 0 ? (
-                        <>
-                          <p className="text-sm font-semibold text-amber-800">No alcanza: ¿con qué paga el resto?</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {MEDIOS_CAJA.map((m) => (
-                              <button key={m.id} onClick={() => setMedioResto(m.id)}
-                                className={`rounded-lg border px-2 py-2 text-xs font-semibold ${medioResto === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{m.nombre}</button>
-                            ))}
-                          </div>
-                          <p className="flex justify-between text-lg"><span>Resto en {nombreMedio(medioResto).toLowerCase()}</span><b>{pesos(cgc.falta)}</b></p>
-                        </>
-                      ) : (
-                        <p className="flex justify-between text-sm text-green-800"><span>Le queda en la tarjeta</span><b>{pesos(cgc.saldoQueda)}</b></p>
-                      )}
-                    </>
-                  )}
-                  <button className="text-xs text-suave underline" onClick={() => { setGc(null); setCodigoGc(""); }}>Usar otra gift card</button>
-                </>
-              )}
-            </div>
-          )}
-
-          {medioEfectivo && (
-            <label>
-              <span className="etiqueta">Paga con (opcional)</span>
-              <input value={pagaCon} onChange={(e) => setPagaCon(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cobrar()}
-                className="campo !text-lg" inputMode="decimal" placeholder="0" />
-              {vuelto !== null && <span className={`mt-1 block text-lg font-semibold ${vuelto < 0 ? "text-red-700" : "text-green-800"}`}>Vuelto: {pesos(Math.max(0, vuelto))}{vuelto < 0 ? ` (faltan ${pesos(-vuelto)})` : ""}</span>}
-            </label>
-          )}
-
-          <button className="boton justify-center !py-4 text-lg" onClick={cobrar}
-            disabled={cobrando || (modoGc ? !(montoNuevaGc > 0) : items.length === 0 || (conGc && !gc))}>
-            {cobrando ? "Cobrando…" : modoGc ? `Cobrar gift card ${montoNuevaGc > 0 ? pesos(montoNuevaGc) : ""}`
-              : conGc ? (gc && items.length > 0 ? (aCobrar > 0 ? `Cobrar ${pesos(aCobrar)} + gift card` : "Pagar con gift card") : "Pagar con gift card")
-              : `Cobrar ${items.length > 0 ? pesos(t.total) : ""}`}
-          </button>
-
-          {aviso && <p className={`rounded-lg px-3 py-2 text-sm ${aviso.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{aviso.texto}</p>}
-
-          {ultima && items.length === 0 && (
-            <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-3">
-              <p className="text-sm text-green-900">
-                {ultima.giftcard_nueva
-                  ? <>✓ Gift card <b>{ultima.giftcard_nueva.codigo}</b> vendida: <b>{pesos(ultima.total)}</b> en {ultima.medio}</>
-                  : ultima.giftcard
-                    ? <>✓ Venta <b>{codigoVenta(ultima.id)}</b>: <b>{pesos(ultima.giftcard.usado)}</b> con gift card{ultima.total > 0 ? <> + <b>{pesos(ultima.total)}</b> en {ultima.medio}</> : null}. Saldo que queda: <b>{pesos(ultima.giftcard.saldo ?? 0)}</b></>
-                    : <>✓ Venta <b>{codigoVenta(ultima.id)}</b> guardada: <b>{pesos(ultima.total)}</b> en {ultima.medio}</>}
-                {ultima.paga_con && ultima.paga_con > ultima.total ? <> · Vuelto <b>{pesos(ultima.paga_con - ultima.total)}</b></> : null}
-              </p>
-              {ultima.giftcard_nueva && (
-                <button className="boton w-full justify-center" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>🎁 Imprimir gift card</button>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
-                {!ultima.giftcard_nueva && <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "cambio"); volverAlLector(); }}>Ticket de cambio</button>}
-              </div>
-              <label className="flex items-center justify-between gap-2 text-xs text-suave">Papel
-                <select value={papel} onChange={(e) => setPapel(e.target.value as "80" | "58" | "a4")} className="rounded border border-linea bg-white px-1 py-0.5">
-                  <option value="80">Ticket 80 mm</option><option value="58">Ticket 58 mm</option><option value="a4">Hoja A4</option>
-                </select>
+        {/* ---------- Derecha: cobro ---------- */}
+        <section className="flex shrink-0 flex-col rounded-2xl border border-linea bg-white lg:min-h-0 lg:shrink lg:overflow-hidden">
+          <div className="flex-1 space-y-4 p-4 md:p-5 lg:overflow-auto">
+            {/* Total */}
+            {modoGc ? (
+              <label className="block">
+                <span className="text-sm font-semibold text-marca">🎁 Valor de la gift card</span>
+                <input value={montoGc} onChange={(e) => setMontoGc(e.target.value)} className="mt-1 w-full rounded-xl border-2 border-linea px-3 py-2 text-4xl font-semibold tabular-nums outline-none focus:border-marca"
+                  inputMode="decimal" placeholder="$ 0" autoFocus />
+                <span className="ayuda block">Se cobra completo. Al usarla, los productos van al precio del medio con que se pagó.</span>
               </label>
+            ) : (
+              <div>
+                <p className="text-sm text-suave">{t.unidades ? `${t.unidades} ${t.unidades === 1 ? "unidad" : "unidades"}` : "Total"}{conGc && gc ? ` · precio ${nombreMedio(gc.medio_origen).toLowerCase()} (como se pagó la gift card)` : ""}</p>
+                <p className="text-5xl font-semibold tracking-tight tabular-nums">{pesos(t.total)}</p>
+              </div>
+            )}
+
+            {/* Medios de pago: cada botón muestra cuánto queda con ese medio */}
+            <div>
+              <p className="mb-2 text-xs font-semibold tracking-wide text-suave uppercase">Medio de pago</p>
+              <div className="grid grid-cols-2 gap-2">
+                {MEDIOS_CAJA.map((m) => {
+                  const elegido = medio === m.id;
+                  return (
+                    <button key={m.id} onClick={() => { setMedio(m.id); setGc(null); }}
+                      className={`rounded-xl border-2 px-3 py-2.5 text-left transition ${elegido ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
+                      <span className="block text-sm font-semibold">{m.nombre}</span>
+                      {!modoGc && items.length > 0 && (
+                        <span className={`block text-sm tabular-nums ${elegido ? "text-white/85" : "text-suave"}`}>{pesos(totales(items, m.id).total)}</span>
+                      )}
+                    </button>
+                  );
+                })}
+                {!modoGc && (
+                  <button onClick={() => { setMedio("giftcard"); setAviso(null); }}
+                    className={`rounded-xl border-2 px-3 py-2.5 text-left transition ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
+                    <span className="block text-sm font-semibold">🎁 Gift card</span>
+                    <span className={`block text-xs ${conGc ? "text-white/85" : "text-suave"}`}>Escaneá la tarjeta</span>
+                  </button>
+                )}
+              </div>
             </div>
-          )}
 
-          <p className="text-xs text-suave">
-            {catalogo ? `${catalogo.productos.length} productos en esta compu` : "Sin catálogo"}
-            {catalogo?.guardado ? ` · actualizado ${new Date(catalogo.guardado).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}` : ""}
+            {conGc && (
+              <div className="space-y-3 rounded-xl bg-marca-claro p-3">
+                {!gc ? (
+                  <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (codigoGc.trim()) cargarGc(codigoGc.trim()); }}>
+                    <input value={codigoGc} onChange={(e) => setCodigoGc(e.target.value)} className="campo uppercase" placeholder="Código de la gift card" autoFocus autoComplete="off" />
+                    <button className="boton" disabled={buscandoGc}>{buscandoGc ? "…" : "Buscar"}</button>
+                  </form>
+                ) : (
+                  <>
+                    <p className="flex justify-between text-sm"><span>Gift card <b className="font-mono">{gc.codigo}</b></span><span>Saldo <b>{pesos(gc.saldo)}</b></span></p>
+                    {cgc && items.length > 0 && (
+                      <>
+                        <p className="flex justify-between text-sm"><span>Se descuenta de la tarjeta</span><b>{pesos(cgc.usa)}</b></p>
+                        {cgc.falta > 0 ? (
+                          <>
+                            <p className="text-sm font-semibold text-amber-900">No alcanza. ¿Con qué paga el resto?</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {MEDIOS_CAJA.map((m) => (
+                                <button key={m.id} onClick={() => setMedioResto(m.id)}
+                                  className={`rounded-lg border px-2 py-2 text-xs font-semibold ${medioResto === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{m.nombre}</button>
+                              ))}
+                            </div>
+                            <p className="flex justify-between text-base"><span>Resto en {nombreMedio(medioResto).toLowerCase()}</span><b className="tabular-nums">{pesos(cgc.falta)}</b></p>
+                          </>
+                        ) : (
+                          <p className="flex justify-between text-sm text-green-800"><span>Le queda en la tarjeta</span><b>{pesos(cgc.saldoQueda)}</b></p>
+                        )}
+                      </>
+                    )}
+                    <button className="text-xs text-suave underline" onClick={() => { setGc(null); setCodigoGc(""); }}>Usar otra gift card</button>
+                  </>
+                )}
+              </div>
+            )}
 
-          </p>
+            {medioEfectivo && hayCarrito && (
+              <div>
+                <p className="mb-2 text-xs font-semibold tracking-wide text-suave uppercase">Paga con</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {sugerenciasEfectivo.map((x, i) => (
+                    <button key={x} onClick={() => setPagaCon(String(x))}
+                      className={`rounded-lg border px-2.5 py-1.5 text-sm tabular-nums ${pago === x ? "border-marca bg-marca-claro font-semibold text-marca" : "border-linea"}`}>
+                      {i === 0 ? "Justo" : pesos(x).replace(",00", "")}
+                    </button>
+                  ))}
+                </div>
+                <input value={pagaCon} onChange={(e) => setPagaCon(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cobrar()}
+                  className="campo mt-2 !text-lg" inputMode="decimal" placeholder="Otro monto" />
+                {vuelto !== null && (
+                  <p className={`mt-2 flex items-baseline justify-between rounded-xl px-3 py-2 ${vuelto < 0 ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
+                    <span className="text-sm font-semibold">{vuelto < 0 ? "Faltan" : "Vuelto"}</span>
+                    <span className="text-2xl font-semibold tabular-nums">{pesos(Math.abs(vuelto))}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            {aviso && <p className={`rounded-xl px-3 py-2 text-sm ${aviso.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{aviso.texto}</p>}
+
+            {ultima && !hayCarrito && (
+              <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4">
+                <p className="flex items-center gap-2 font-semibold text-green-900">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-700 text-sm text-white">✓</span>
+                  {ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo} vendida` : `Venta ${codigoVenta(ultima.id)} cobrada`}
+                </p>
+                <p className="text-sm text-green-900">
+                  {ultima.giftcard
+                    ? <>{pesos(ultima.giftcard.usado)} con gift card{ultima.total > 0 ? <> + {pesos(ultima.total)} en {ultima.medio}</> : null}. Saldo que le queda: <b>{pesos(ultima.giftcard.saldo ?? 0)}</b></>
+                    : <>{pesos(ultima.total)} en {ultima.medio}</>}
+                </p>
+                {ultima.paga_con && ultima.paga_con > ultima.total ? (
+                  <p className="flex items-baseline justify-between rounded-lg bg-white px-3 py-2"><span className="text-sm font-semibold">Vuelto</span><span className="text-2xl font-semibold tabular-nums">{pesos(ultima.paga_con - ultima.total)}</span></p>
+                ) : null}
+                {ultima.giftcard_nueva && (
+                  <button className="boton w-full justify-center" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>🎁 Imprimir gift card</button>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
+                  {!ultima.giftcard_nueva && <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "cambio"); volverAlLector(); }}>Ticket de cambio</button>}
+                </div>
+                <label className="flex items-center justify-between gap-2 text-xs text-suave">Papel de la impresora
+                  <select value={papel} onChange={(e) => setPapel(e.target.value as "80" | "58" | "a4")} className="rounded border border-linea bg-white px-1 py-0.5">
+                    <option value="80">Ticket 80 mm</option><option value="58">Ticket 58 mm</option><option value="a4">Hoja A4</option>
+                  </select>
+                </label>
+              </div>
+            )}
+          </div>
+
+          {/* Botón de cobrar, siempre a la vista */}
+          <div className="sticky bottom-0 rounded-b-2xl border-t border-linea bg-white p-4 md:p-5">
+            <button className="flex w-full items-center justify-between rounded-2xl bg-marca px-5 py-4 text-white shadow-sm transition hover:opacity-95 disabled:opacity-40" onClick={cobrar} disabled={!listoParaCobrar}>
+              <span className="text-lg font-semibold">
+                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : "Cobrar"}
+              </span>
+              <span className="text-2xl font-semibold tabular-nums">{!hayCarrito ? "" : modoGc || !conGc ? pesos(aCobrar) : cgc ? pesos(cgc.falta > 0 ? cgc.falta : cgc.usa) : ""}</span>
+            </button>
+            <p className="mt-2 text-center text-xs text-suave">
+              {catalogo ? `${catalogo.productos.length.toLocaleString("es-AR")} productos en esta compu` : "Sin catálogo"}
+              {catalogo?.guardado ? ` · actualizado ${new Date(catalogo.guardado).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}` : ""}
+            </p>
+          </div>
         </section>
       </main>
     </div>
