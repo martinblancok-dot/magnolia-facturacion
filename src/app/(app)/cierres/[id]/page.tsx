@@ -79,7 +79,7 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
           </div>
         )}
         {c.alertas.cobrosSinVenta.length > 0 && (
-          <div className="mt-2 text-sm text-amber-900"><b>Cobros sin venta en la caja ({c.alertas.cobrosSinVenta.length}):</b>
+          <div className="mt-2 text-sm text-amber-900"><b>Cobros sin venta en ninguno de los dos locales ({c.alertas.cobrosSinVenta.length}):</b>
             <ul>{c.alertas.cobrosSinVenta.map((x) => <li key={x.id}>{hora(x.fecha_hora)} · {ORIGEN[x.origen] ?? x.origen} · {pesos(Number(x.importe))}</li>)}</ul>
           </div>
         )}

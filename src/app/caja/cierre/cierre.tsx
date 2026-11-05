@@ -124,7 +124,10 @@ export function CierreCaja() {
             <ul className="mt-1 space-y-0.5">
               {alertas.cobrosSinVenta.map((c) => <li key={c.id}>{hora(c.fecha_hora)} · {ORIGEN[c.origen] ?? c.origen} · <b>{pesos(Number(c.importe))}</b></li>)}
             </ul>
-            <p className="mt-1 text-xs">Puede ser una venta que no se cargó en la caja, o una transferencia que no es venta.</p>
+            <p className="mt-1 text-xs">
+              Ya se descartaron los que corresponden a ventas del otro local. Si quedan, puede ser una venta que no se cargó, una transferencia que no es venta,
+              o una venta del otro local que todavía no se subió (si estuvo sin internet). El reporte del cierre se actualiza solo cuando se suba.
+            </p>
           </div>
         )}
       </section>
