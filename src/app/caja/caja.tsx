@@ -443,7 +443,8 @@ export function Caja() {
         </Link>
         <div className="mr-auto leading-tight">
           <p className="font-semibold text-marca">{nombreLocal}</p>
-          <p className="hidden text-xs text-suave sm:block">Caja abierta desde las {new Date(turno.abierta_en).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</p>
+          <p className="hidden text-xs text-suave sm:block">Caja abierta desde las {new Date(turno.abierta_en).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+            {" · "}{catalogo ? `${catalogo.productos.length.toLocaleString("es-AR")} productos${catalogo.guardado ? ` (act. ${new Date(catalogo.guardado).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})` : ""}` : "sin catálogo"}</p>
         </div>
         <span className="hidden items-center gap-2 text-xs sm:flex">
           {estado === "sin-conexion" && <span className="rounded-full bg-amber-100 px-2.5 py-1 font-semibold text-amber-900">● Sin internet</span>}
@@ -477,7 +478,7 @@ export function Caja() {
         </form>
       )}
 
-      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-3 md:p-4 lg:grid lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-3 md:p-4 lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
         {/* ---------- Izquierda: ventas abiertas, buscador y carrito ---------- */}
         <section className="flex min-w-0 shrink-0 flex-col gap-3 lg:min-h-0 lg:shrink">
           <div className="flex shrink-0 gap-2 overflow-x-auto pb-1">
@@ -627,7 +628,7 @@ export function Caja() {
 
         {/* ---------- Derecha: cobro ---------- */}
         <section className="flex shrink-0 flex-col rounded-2xl border border-linea bg-white lg:min-h-0 lg:shrink lg:overflow-hidden">
-          <div className="flex-1 space-y-4 p-4 md:p-5 lg:overflow-auto">
+          <div className="flex-1 space-y-3 p-3 md:p-4 lg:overflow-auto">
             {/* Venta recién cobrada mientras ya se atiende a otro cliente: se puede imprimir igual */}
             {ultima && hayCarrito && (
               <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm">
@@ -654,32 +655,31 @@ export function Caja() {
               </label>
             ) : (
               <div>
-                <p className="text-sm text-suave">{t.unidades ? `${t.unidades} ${t.unidades === 1 ? "unidad" : "unidades"}` : "Total"}{conGc && gc ? ` · precio ${nombreMedio(gc.medio_origen).toLowerCase()} (como se pagó la gift card)` : ""}</p>
-                <p className="text-5xl font-semibold tracking-tight tabular-nums">{pesos(t.total)}</p>
+                <p className="text-xs text-suave">{t.unidades ? `${t.unidades} ${t.unidades === 1 ? "unidad" : "unidades"}` : "Total"}{conGc && gc ? ` · precio ${nombreMedio(gc.medio_origen).toLowerCase()} (como se pagó la gift card)` : ""}</p>
+                <p className="text-4xl leading-tight font-semibold tracking-tight tabular-nums">{pesos(t.total)}</p>
               </div>
             )}
 
             {/* Medios de pago: cada botón muestra cuánto queda con ese medio */}
             <div>
-              <p className="mb-2 text-xs font-semibold tracking-wide text-suave uppercase">Medio de pago</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 {MEDIOS_CAJA.map((m) => {
                   const elegido = medio === m.id;
                   return (
                     <button key={m.id} onClick={() => { setMedio(m.id); setGc(null); }}
-                      className={`rounded-xl border-2 px-3 py-2.5 text-left transition ${elegido ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
-                      <span className="block text-sm font-semibold">{m.nombre}</span>
+                      className={`rounded-xl border-2 px-2.5 py-1.5 text-left leading-tight transition ${elegido ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
+                      <span className="block truncate text-xs font-semibold">{m.id === "cuotas" ? "Crédito cuotas" : m.nombre}</span>
                       {!modoGc && items.length > 0 && (
-                        <span className={`block text-sm tabular-nums ${elegido ? "text-white/85" : "text-suave"}`}>{pesos(totales(items, m.id).total)}</span>
+                        <span className={`mt-0.5 block text-sm font-semibold tabular-nums ${elegido ? "text-white/90" : "text-tinta/70"}`}>{pesos(totales(items, m.id).total).replace(",00", "")}</span>
                       )}
                     </button>
                   );
                 })}
                 {!modoGc && (
                   <button onClick={() => { setMedio("giftcard"); setAviso(null); }}
-                    className={`rounded-xl border-2 px-3 py-2.5 text-left transition ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
-                    <span className="block text-sm font-semibold">🎁 Gift card</span>
-                    <span className={`block text-xs ${conGc ? "text-white/85" : "text-suave"}`}>Escaneá la tarjeta</span>
+                    className={`rounded-xl border-2 px-2.5 py-1.5 text-left leading-tight transition ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
+                    <span className="block text-xs font-semibold">🎁 Gift card</span>
+                    <span className={`mt-0.5 block text-xs ${conGc ? "text-white/85" : "text-suave"}`}>Escaneala</span>
                   </button>
                 )}
               </div>
@@ -721,22 +721,22 @@ export function Caja() {
             )}
 
             {medioEfectivo && hayCarrito && (
-              <div>
-                <p className="mb-2 text-xs font-semibold tracking-wide text-suave uppercase">Paga con</p>
-                <div className="flex flex-wrap gap-1.5">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs font-semibold text-suave">Paga con</span>
                   {sugerenciasEfectivo.map((x, i) => (
                     <button key={x} onClick={() => setPagaCon(String(x))}
-                      className={`rounded-lg border px-2.5 py-1.5 text-sm tabular-nums ${pago === x ? "border-marca bg-marca-claro font-semibold text-marca" : "border-linea"}`}>
+                      className={`rounded-lg border px-2 py-1 text-sm tabular-nums ${pago === x ? "border-marca bg-marca-claro font-semibold text-marca" : "border-linea"}`}>
                       {i === 0 ? "Justo" : pesos(x).replace(",00", "")}
                     </button>
                   ))}
+                  <input value={pagaCon} onChange={(e) => setPagaCon(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cobrar()}
+                    className="min-w-24 flex-1 rounded-lg border border-linea px-2 py-1 text-sm outline-none focus:border-marca" inputMode="decimal" placeholder="Otro monto" />
                 </div>
-                <input value={pagaCon} onChange={(e) => setPagaCon(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cobrar()}
-                  className="campo mt-2 !text-lg" inputMode="decimal" placeholder="Otro monto" />
                 {vuelto !== null && (
-                  <p className={`mt-2 flex items-baseline justify-between rounded-xl px-3 py-2 ${vuelto < 0 ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
+                  <p className={`flex items-baseline justify-between rounded-xl px-3 py-1.5 ${vuelto < 0 ? "bg-red-50 text-red-800" : "bg-green-50 text-green-900"}`}>
                     <span className="text-sm font-semibold">{vuelto < 0 ? "Faltan" : "Vuelto"}</span>
-                    <span className="text-2xl font-semibold tabular-nums">{pesos(Math.abs(vuelto))}</span>
+                    <span className="text-xl font-semibold tabular-nums">{pesos(Math.abs(vuelto))}</span>
                   </p>
                 )}
               </div>
@@ -776,17 +776,13 @@ export function Caja() {
           </div>
 
           {/* Botón de cobrar, siempre a la vista */}
-          <div className="sticky bottom-0 rounded-b-2xl border-t border-linea bg-white p-4 md:p-5">
-            <button className="flex w-full items-center justify-between rounded-2xl bg-marca px-5 py-4 text-white shadow-sm transition hover:opacity-95 disabled:opacity-40" onClick={cobrar} disabled={!listoParaCobrar}>
+          <div className="sticky bottom-0 rounded-b-2xl border-t border-linea bg-white p-3 md:p-4">
+            <button className="flex w-full items-center justify-between rounded-2xl bg-marca px-5 py-3 text-white shadow-sm transition hover:opacity-95 disabled:opacity-40" onClick={cobrar} disabled={!listoParaCobrar}>
               <span className="text-lg font-semibold">
                 {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : "Cobrar"}
               </span>
               <span className="text-2xl font-semibold tabular-nums">{!hayCarrito ? "" : modoGc || !conGc ? pesos(aCobrar) : cgc ? pesos(cgc.falta > 0 ? cgc.falta : cgc.usa) : ""}</span>
             </button>
-            <p className="mt-2 text-center text-xs text-suave">
-              {catalogo ? `${catalogo.productos.length.toLocaleString("es-AR")} productos en esta compu` : "Sin catálogo"}
-              {catalogo?.guardado ? ` · actualizado ${new Date(catalogo.guardado).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}` : ""}
-            </p>
           </div>
         </section>
       </main>
