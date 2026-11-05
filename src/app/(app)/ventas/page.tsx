@@ -1,21 +1,24 @@
 import Link from "next/link";
-import { anularVenta } from "../../acciones";
-import { BotonAccion } from "../../componentes";
+import { anularVenta, pedirAnulacion, rechazarAnulacion } from "../../acciones";
+import { BotonAccion, Formulario } from "../../componentes";
 import { MEDIOS } from "@/lib/caja";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { usuarioConRol } from "@/lib/supabase/sesion";
 import { codigoVenta, rangoCodigo, venceCambio } from "@/lib/impresion";
 import { Reimprimir } from "./reimprimir";
 
 type Venta = {
   id: string; numero: number; local_id: number; creada_en: string; medio_pago: string; total: number; total_lista: number;
-  anulada: boolean; paga_con: number | null; venta_items: { n: number; nombre: string; sku: string | null; cantidad: number; precio_unitario: number; total: number }[];
+  anulada: boolean; paga_con: number | null;
+  anulacion_pedida_por?: string | null; anulacion_pedida_en?: string | null; anulacion_motivo?: string | null; anulacion_rechazada_en?: string | null;
+  venta_items: { n: number; nombre: string; sku: string | null; cantidad: number; precio_unitario: number; total: number }[];
 };
 
 export default async function Ventas({ searchParams }: { searchParams: Promise<{ dia?: string; local?: string; codigo?: string }> }) {
-  await usuarioActual();
+  const { rol } = await usuarioConRol();
+  const duenio = rol === "duenio";
   const db = clienteServidor();
   const sp = await searchParams;
   const hoy = diaArgentina();
@@ -25,13 +28,26 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
 
   const buscado = sp.codigo?.trim() ?? "";
   const rango = buscado ? rangoCodigo(buscado) : null;
-  let q = db.from("ventas").select("id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, venta_items(n, nombre, sku, cantidad, precio_unitario, total)")
-    .order("creada_en", { ascending: false }).limit(1000);
-  if (rango) q = q.gte("id", rango[0]).lte("id", rango[1]);
-  else q = q.gte("creada_en", `${dia}T00:00:00-03:00`).lt("creada_en", `${siguiente}T00:00:00-03:00`);
-  if (local && !rango) q = q.eq("local_id", local);
-  const [{ data }, { data: locales }] = await Promise.all([q, db.from("locales").select("id, nombre").order("id")]);
-  const ventas = (data ?? []) as Venta[];
+  const BASE = "id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, venta_items(n, nombre, sku, cantidad, precio_unitario, total)";
+  const PEDIDOS = ", anulacion_pedida_por, anulacion_pedida_en, anulacion_motivo, anulacion_rechazada_en";
+  const consulta = (cols: string) => {
+    let q = db.from("ventas").select(cols).order("creada_en", { ascending: false }).limit(1000);
+    if (rango) q = q.gte("id", rango[0]).lte("id", rango[1]);
+    else q = q.gte("creada_en", `${dia}T00:00:00-03:00`).lt("creada_en", `${siguiente}T00:00:00-03:00`);
+    if (local && !rango) q = q.eq("local_id", local);
+    return q;
+  };
+  const [primera, { data: locales }, { data: perfiles }, pendientesQ] = await Promise.all([
+    consulta(BASE + PEDIDOS),
+    db.from("locales").select("id, nombre").order("id"),
+    db.from("perfiles").select("usuario_id, nombre"),
+    duenio ? db.from("ventas").select(BASE + PEDIDOS).not("anulacion_pedida_en", "is", null).eq("anulada", false).order("anulacion_pedida_en") : Promise.resolve({ data: [] }),
+  ]);
+  // si todavía no se corrió la migración 0010, se ve igual que antes
+  const { data } = primera.error ? await consulta(BASE) : primera;
+  const ventas = (data ?? []) as unknown as Venta[];
+  const pendientes = ((pendientesQ.data ?? []) as unknown as Venta[]);
+  const quien = (id?: string | null) => perfiles?.find((p) => p.usuario_id === id)?.nombre || "un colaborador";
   const validas = ventas.filter((v) => !v.anulada);
   const total = validas.reduce((s, v) => s + Number(v.total), 0);
   const porMedio = MEDIOS.map((m) => ({ ...m, total: validas.filter((v) => v.medio_pago === m.id).reduce((s, v) => s + Number(v.total), 0), n: validas.filter((v) => v.medio_pago === m.id).length }));
@@ -51,6 +67,27 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
           {dia < hoy ? <Link href={url(siguiente, local)} className="boton-borde !px-4 !py-2">→</Link> : <span className="w-11" />}
         </div>
       </div>
+
+      {pendientes.length > 0 && (
+        <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <h2 className="font-semibold text-amber-900">Anulaciones para autorizar ({pendientes.length})</h2>
+          <ul className="mt-2 divide-y divide-amber-200">
+            {pendientes.map((v) => (
+              <li key={v.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <span className="text-sm">
+                  <b>#{v.numero}</b> · {new Date(v.creada_en).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · {nombreLocal(v.local_id)} · <b>{pesos(Number(v.total))}</b> en {MEDIOS.find((m) => m.id === v.medio_pago)?.nombre}
+                  <span className="block text-amber-900">Pide {quien(v.anulacion_pedida_por)}: “{v.anulacion_motivo}”</span>
+                  <span className="block text-suave">{v.venta_items.map((i) => `${Number(i.cantidad)} × ${i.nombre}`).join(" · ")}</span>
+                </span>
+                <span className="flex gap-2">
+                  <BotonAccion accion={anularVenta.bind(null, v.id)} texto="Confirmar anulación" />
+                  <BotonAccion accion={rechazarAnulacion.bind(null, v.id)} texto="Rechazar" borde />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <form action="/ventas" className="flex gap-2">
         <input name="codigo" defaultValue={buscado} inputMode="text" autoComplete="off" placeholder="Escaneá o escribí el código del ticket"
@@ -103,6 +140,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                       <span className="block text-sm text-suave">
                         {MEDIOS.find((m) => m.id === v.medio_pago)?.nombre} · {v.venta_items.reduce((s, i) => s + Number(i.cantidad), 0)} u.
                         {v.anulada && <span className="ml-2 font-semibold text-red-700">ANULADA</span>}
+                        {!v.anulada && v.anulacion_pedida_en && <span className="ml-2 font-semibold text-amber-700">ANULACIÓN PEDIDA</span>}
                       </span>
                     </span>
                     <span className={`font-semibold ${v.anulada ? "line-through" : ""}`}>{pesos(Number(v.total))}</span>
@@ -127,8 +165,24 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                           <Reimprimir venta={{ id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio: MEDIOS.find((m) => m.id === v.medio_pago)?.nombre ?? v.medio_pago,
                             total: Number(v.total), paga_con: v.paga_con == null ? null : Number(v.paga_con),
                             items: [...v.venta_items].sort((a, b) => a.n - b.n).map((i) => ({ nombre: i.nombre, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), total: Number(i.total) })) }} />
-                          <BotonAccion accion={anularVenta.bind(null, v.id)} texto="Anular venta" borde />
+                          {duenio && <BotonAccion accion={anularVenta.bind(null, v.id)} texto="Anular venta" borde />}
                         </div>
+                        {v.anulacion_pedida_en ? (
+                          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            Anulación pedida por {quien(v.anulacion_pedida_por)} (“{v.anulacion_motivo}”). {duenio ? "Confirmala o rechazala arriba." : "Esperando que Martín o Sofi la confirmen."}
+                          </p>
+                        ) : !duenio && (
+                          <>
+                            {v.anulacion_rechazada_en && <p className="mt-3 text-sm text-red-700">El pedido de anulación anterior fue rechazado.</p>}
+                            <details className="mt-3">
+                              <summary className="cursor-pointer text-sm text-marca underline">Pedir anulación</summary>
+                              <Formulario accion={pedirAnulacion.bind(null, v.id)} boton="Enviar pedido" className="mt-2 max-w-md">
+                                <label><span className="etiqueta">¿Por qué hay que anularla?</span>
+                                  <input name="motivo" className="campo" required minLength={3} maxLength={300} placeholder="Ej.: cobré dos veces, el cliente se arrepintió" /></label>
+                              </Formulario>
+                            </details>
+                          </>
+                        )}
                       </>
                     );
                   })()}

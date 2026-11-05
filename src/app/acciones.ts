@@ -297,11 +297,34 @@ export async function importarCatalogo(_prev: ResultadoImportacion | null, form:
 // ---------- Ventas ----------
 
 export async function anularVenta(id: string): Promise<Mensaje> {
-  const u = await usuarioActual();
+  const u = await soloDuenio(); // solo Martín y Sofi; los colaboradores piden la anulación
   const { data, error } = await clienteServidor().rpc("anular_venta", { venta: id, usuario: u.id });
   if (error) return { ok: false, texto: error.message };
-  revalidatePath("/ventas");
+  revalidatePath("/", "layout");
   return data ? { ok: true, texto: "Venta anulada y stock devuelto." } : { ok: false, texto: "Ya estaba anulada." };
+}
+
+export async function pedirAnulacion(id: string, _prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  const u = await usuarioActual();
+  const motivo = String(form.get("motivo") ?? "").trim();
+  if (motivo.length < 3) return { ok: false, texto: "Contá brevemente por qué hay que anularla." };
+  const { data, error } = await clienteServidor().from("ventas")
+    .update({ anulacion_pedida_por: u.id, anulacion_pedida_en: new Date().toISOString(), anulacion_motivo: motivo.slice(0, 300), anulacion_rechazada_por: null, anulacion_rechazada_en: null })
+    .eq("id", id).eq("anulada", false).select("id");
+  if (error) return { ok: false, texto: /anulacion_/.test(error.message) ? "Falta correr la migración 0010_pedidos_anulacion.sql en Supabase." : error.message };
+  if (!data?.length) return { ok: false, texto: "Esa venta ya está anulada." };
+  revalidatePath("/", "layout");
+  return { ok: true, texto: "Pedido enviado. Avisale a Martín o a Sofi para que lo confirmen desde su usuario." };
+}
+
+export async function rechazarAnulacion(id: string): Promise<Mensaje> {
+  const u = await soloDuenio();
+  const { error } = await clienteServidor().from("ventas")
+    .update({ anulacion_pedida_por: null, anulacion_pedida_en: null, anulacion_rechazada_por: u.id, anulacion_rechazada_en: new Date().toISOString() })
+    .eq("id", id).eq("anulada", false);
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/", "layout");
+  return { ok: true, texto: "Pedido rechazado: la venta sigue vigente." };
 }
 
 // ---------- Clave de administrador ----------
