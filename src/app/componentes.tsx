@@ -70,6 +70,7 @@ export function Menu({ nombre, duenio, salir }: { nombre: string; duenio: boolea
   const todos = [
     { href: "/caja", texto: "Caja" },
     { href: "/ventas", texto: "Ventas" },
+    { href: "/giftcards", texto: "Gift cards" },
     { href: "/productos", texto: "Productos" },
     { href: "/stock", texto: "Stock" },
     { href: "/cobros", texto: "Cobros" },
@@ -82,7 +83,7 @@ export function Menu({ nombre, duenio, salir }: { nombre: string; duenio: boolea
   const abajo = duenio ? ["/caja", "/ventas", "/stock", "/cobros", "/mas"] : ["/caja", "/ventas", "/productos", "/stock", "/mas"];
   const nombres: Record<string, string> = { "/mas": "Más" };
   const activo = (href: string) =>
-    href === "/ventas" ? ruta.startsWith("/ventas") || ruta.startsWith("/cierres") || ruta.startsWith("/giftcards") :
+    href === "/ventas" ? ruta.startsWith("/ventas") || ruta.startsWith("/cierres") :
     href === "/mas" ? ["/mas", ...(duenio ? ["/productos"] : []), "/facturas", "/monotributo", "/configuracion", "/usuarios"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
   return (
     <>
