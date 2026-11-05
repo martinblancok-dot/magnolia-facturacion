@@ -8,6 +8,7 @@ import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioConRol } from "@/lib/supabase/sesion";
 import { codigoVenta, rangoCodigo, venceCambio } from "@/lib/impresion";
 import { Reimprimir } from "./reimprimir";
+import { DiaSelector } from "../../dia-selector";
 
 type Venta = {
   id: string; numero: number; local_id: number; creada_en: string; medio_pago: string; total: number; total_lista: number;
@@ -97,11 +98,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
               <Link href="/giftcards" className="text-sm text-marca underline">Gift cards →</Link></span>
           )}
         </div>
-        {!misTurnos && <div className="flex items-center gap-2 text-sm">
-          <Link href={url(restarDias(dia, 1), local)} className="boton-borde !px-4 !py-2">←</Link>
-          <span className="w-28 text-center font-semibold">{dia === hoy ? "Hoy" : fechaCorta(dia)}</span>
-          {dia < hoy ? <Link href={url(siguiente, local)} className="boton-borde !px-4 !py-2">→</Link> : <span className="w-11" />}
-        </div>}
+        {!misTurnos && <DiaSelector dia={dia} hoy={hoy} ruta="/ventas" extra={local ? { local: String(local) } : {}} />}
       </div>
 
       {pendientes.length > 0 && (

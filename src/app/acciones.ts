@@ -531,3 +531,26 @@ export async function descartarCambioPlanilla(id: number): Promise<Mensaje> {
   revalidatePath("/configuracion/planilla");
   return { ok: true, texto: "Descartado." };
 }
+
+// ---------- Borrar datos de prueba (solo dueños) ----------
+
+export async function borrarPruebas(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await soloDuenio();
+  if (String(form.get("confirmar") ?? "").trim().toUpperCase() !== "BORRAR") return { ok: false, texto: "Para confirmar, escribí BORRAR." };
+  const dia = String(form.get("dia") ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) return { ok: false, texto: "Elegí hasta qué día borrar." };
+  const ventas = form.get("ventas") === "on", stock = form.get("stock") === "on";
+  if (!ventas && !stock) return { ok: false, texto: "Marcá qué querés borrar." };
+  const sig = new Date(`${dia}T12:00:00Z`);
+  sig.setUTCDate(sig.getUTCDate() + 1);
+  const hasta = `${sig.toISOString().slice(0, 10)}T00:00:00-03:00`;
+  const { data, error } = await clienteServidor().rpc("borrar_pruebas", { hasta, incluir_ventas: ventas, incluir_stock: stock });
+  if (error) return { ok: false, texto: /borrar_pruebas/.test(error.message) ? "Falta correr la migración 0015_borrar_pruebas.sql en Supabase." : error.message };
+  const r = (data ?? {}) as Record<string, number>;
+  revalidatePath("/", "layout");
+  const partes = [
+    ventas && `${r.ventas ?? 0} ventas, ${r.cajas ?? 0} cajas y ${r.giftcards ?? 0} gift cards`,
+    stock && `el stock quedó en 0 (${r.movimientos_stock ?? 0} movimientos borrados)`,
+  ].filter(Boolean);
+  return { ok: true, texto: `Listo: se borraron ${partes.join("; ")}.` };
+}

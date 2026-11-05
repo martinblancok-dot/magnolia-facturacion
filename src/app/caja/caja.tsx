@@ -7,7 +7,7 @@ import {
   agregar, armarVenta, armarVentaGiftcard, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
 } from "@/lib/caja";
-import { encolar, guardar, guardarVenta, leer, type TurnoLocal } from "@/lib/caja-local";
+import { encolar, guardar, guardarVenta, leer, outbox, ventasPendientes, type TurnoLocal } from "@/lib/caja-local";
 import { guardarTurno, subirTodo, turnoDeEstaCompu } from "@/lib/caja-sync";
 import { codigoVenta, type VentaImpresa } from "@/lib/impresion";
 import { useImpresion } from "../impreso";
@@ -229,6 +229,14 @@ export function Caja() {
           guardarTurno(null);
           setTurno(null);
           setAviso({ ok: false, texto: "Esta caja se cerró desde otra compu. Para seguir vendiendo, abrí una caja nueva." });
+        } else if (d.turno === "desconocido" && Date.now() - Date.parse(turno.abierta_en) > 3 * 60_000) {
+          // La caja no existe en el servidor y esta compu no tiene nada sin subir: se borró (datos de prueba)
+          const [cola, ventas] = await Promise.all([outbox(), ventasPendientes()]);
+          if (cola.length === 0 && ventas.length === 0) {
+            guardarTurno(null);
+            setTurno(null);
+            setAviso({ ok: false, texto: "Esta caja ya no existe (se borraron los datos de prueba). Abrí una caja nueva." });
+          }
         }
       } catch {}
     };
