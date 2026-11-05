@@ -26,5 +26,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Todo menos la tarea automática y los archivos estáticos
-  matcher: ["/((?!api/procesar|_next/static|_next/image|manifest.webmanifest|sw.js|icon|apple-icon|icono-).*)"],
+  matcher: ["/((?!api/procesar|api/planilla|_next/static|_next/image|manifest.webmanifest|sw.js|icon|apple-icon|icono-).*)"],
 };

@@ -5,6 +5,7 @@ import { EliminarProducto, FormProducto } from "./formulario";
 import { adminDesbloqueado } from "@/lib/admin";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioActual } from "@/lib/supabase/sesion";
+import { leerEstado } from "@/lib/supabase/planilla";
 
 export default async function EditarProducto({ params }: { params: Promise<{ id: string }> }) {
   await usuarioActual();
@@ -29,11 +30,11 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
     <div className="max-w-2xl space-y-4">
       <Link href="/productos" className="text-sm text-suave underline">← Productos</Link>
       <h1 className="text-2xl font-semibold">{nuevo ? "Nuevo producto" : "Editar producto"}</h1>
-      <FormProducto p={p} />
+      <FormProducto p={p} hojas={nuevo ? (await leerEstado(clienteServidor()))?.hojas ?? [] : []} />
       {p && (
         <div className="tarjeta border-red-200">
           <h2 className="font-semibold text-red-800">Eliminar producto</h2>
-          <p className="ayuda">Deja de aparecer en la caja y en las listas. Las ventas que ya tuvo se conservan.</p>
+          <p className="ayuda">Deja de aparecer en la caja y en las listas. Las ventas que ya tuvo se conservan.{p.hoja ? " En la planilla queda como está (borralo ahí si no lo vas a usar más)." : ""}</p>
           <EliminarProducto id={p.id} />
         </div>
       )}

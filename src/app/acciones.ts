@@ -365,7 +365,7 @@ export async function bloquearAdmin() {
 // ---------- Editar productos ----------
 
 export async function guardarProducto(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
-  await usuarioActual();
+  const u = await usuarioActual();
   if (!(await adminDesbloqueado())) return { ok: false, texto: "Se cerró la edición: desbloqueá de nuevo con la clave." };
   const id = String(form.get("id") ?? "");
   const num = (k: string) => {
@@ -374,12 +374,55 @@ export async function guardarProducto(_prev: Mensaje | null, form: FormData): Pr
     const n = Number(v.replace(/\./g, "").replace(",", "."));
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
   };
+  const texto = (k: string) => String(form.get(k) ?? "").trim().replace(/\s+/g, " ");
+  const db = clienteServidor();
+  const hojaNueva = texto("hoja");
+
+  // ---- Producto nuevo que va a la planilla: lo escribe el script y vuelve con sus precios
+  if (!id && hojaNueva) {
+    const articulo = texto("articulo_prov");
+    const costo = num("costo");
+    if (!articulo || !texto("nombre")) return { ok: false, texto: "Poné el artículo del proveedor y el nombre." };
+    if (!(Number(costo) > 0)) return { ok: false, texto: "Poné el costo (precio unitario): con eso la planilla calcula los precios." };
+    const { error } = await db.from("planilla_cambios").insert({
+      tipo: "nuevo", hoja: hojaNueva, creado_por: u.id,
+      datos: { articulo_prov: articulo, nombre: texto("nombre"), costo, categoria: texto("categoria") || null },
+    });
+    if (error) return { ok: false, texto: /planilla_cambios/.test(error.message) ? "Falta correr la migración 0012_planilla.sql en Supabase." : error.message };
+    return { ok: true, texto: `Listo: se agrega a la pestaña "${hojaNueva}" de Precios Deco en la próxima sincronización (hasta 10 minutos) y aparece en la caja con sus precios y código de barras.` };
+  }
+
+  // ---- Producto que viene de la planilla: acá solo se cambia nombre, costo y categoría (los precios son de la planilla)
+  if (id) {
+    const { data: actual } = await db.from("productos").select("barcode, hoja, nombre, costo, categoria").eq("id", id).maybeSingle();
+    if (actual?.hoja) {
+      const nuevos = { nombre: texto("nombre"), costo: num("costo"), categoria: texto("categoria") || null };
+      if (!nuevos.nombre) return { ok: false, texto: "El nombre es obligatorio." };
+      if (Number.isNaN(nuevos.costo)) return { ok: false, texto: "Revisá el costo." };
+      const cambios: Record<string, unknown> = {};
+      if (nuevos.nombre !== actual.nombre) cambios.nombre = nuevos.nombre;
+      if (nuevos.costo !== null && Number(nuevos.costo) !== Number(actual.costo)) cambios.costo = nuevos.costo;
+      if ((nuevos.categoria ?? null) !== (actual.categoria ?? null)) cambios.categoria = nuevos.categoria;
+      if (!Object.keys(cambios).length) return { ok: true, texto: "No había cambios." };
+      const r = await db.from("productos").update({ ...cambios, actualizado_en: new Date().toISOString() }).eq("id", id);
+      if (r.error) return { ok: false, texto: r.error.message };
+      await db.from("planilla_cambios").insert({ tipo: "editar", barcode: actual.barcode, hoja: actual.hoja, datos: cambios, creado_por: u.id });
+      revalidatePath("/productos", "layout");
+      return {
+        ok: true,
+        texto: "Guardado. Se escribe en Precios Deco en la próxima sincronización (hasta 10 minutos)" +
+          ("costo" in cambios ? "; ahí la planilla recalcula los precios y vuelven solos al sistema." : "."),
+      };
+    }
+  }
+
+  // ---- Producto cargado solo en el sistema (no está en la planilla)
   const datos = {
-    nombre: String(form.get("nombre") ?? "").trim().replace(/\s+/g, " "),
-    sku: String(form.get("sku") ?? "").trim(),
-    barcode: String(form.get("barcode") ?? "").trim(),
-    categoria: String(form.get("categoria") ?? "").trim() || null,
-    proveedor: String(form.get("proveedor") ?? "").trim() || null,
+    nombre: texto("nombre"),
+    sku: texto("sku"),
+    barcode: texto("barcode"),
+    categoria: texto("categoria") || null,
+    proveedor: texto("proveedor") || null,
     precio_lista: num("precio_lista"),
     precio_efectivo: num("precio_efectivo"),
     costo: num("costo"),
@@ -389,7 +432,6 @@ export async function guardarProducto(_prev: Mensaje | null, form: FormData): Pr
   if (!(Number(datos.precio_lista) > 0)) return { ok: false, texto: "El precio de lista tiene que ser mayor a 0." };
   if (datos.precio_efectivo === null) datos.precio_efectivo = Math.round((Number(datos.precio_lista) * 0.85) / 50) * 50;
   if (!(Number(datos.precio_efectivo) >= 0) || Number.isNaN(datos.costo)) return { ok: false, texto: "Revisá los precios." };
-  const db = clienteServidor();
   const { data: otro } = await db.from("productos").select("id, nombre").eq("barcode", datos.barcode).maybeSingle();
   if (otro && otro.id !== id) return { ok: false, texto: `Ese código de barras ya lo usa "${otro.nombre}".` };
   const r = id ? await db.from("productos").update(datos).eq("id", id) : await db.from("productos").insert({ ...datos, activo: true });
@@ -403,7 +445,10 @@ export async function eliminarProducto(id: string): Promise<Mensaje> {
   await usuarioActual();
   if (!(await adminDesbloqueado())) return { ok: false, texto: "Se cerró la edición: desbloqueá de nuevo con la clave." };
   // No se borra del todo (tiene ventas asociadas): se oculta de la caja y de las listas
-  const { error } = await clienteServidor().from("productos").update({ activo: false, actualizado_en: new Date().toISOString() }).eq("id", id);
+  // baja "sistema": aunque siga en la planilla, la sincronización no lo vuelve a activar
+  let r = await clienteServidor().from("productos").update({ activo: false, baja: "sistema", actualizado_en: new Date().toISOString() }).eq("id", id);
+  if (r.error && /baja/.test(r.error.message)) r = await clienteServidor().from("productos").update({ activo: false, actualizado_en: new Date().toISOString() }).eq("id", id);
+  const error = r.error;
   if (error) return { ok: false, texto: error.message };
   revalidatePath("/productos", "layout");
   redirect("/productos");
@@ -456,4 +501,33 @@ export async function activarUsuario(id: string, activo: boolean): Promise<Mensa
   await db.from("perfiles").update({ activo }).eq("usuario_id", id);
   revalidatePath("/usuarios");
   return { ok: true, texto: activo ? "Usuario activado de nuevo." : "Usuario dado de baja. Ya no puede entrar." };
+}
+
+// ---------- Precios Deco (Google Sheets) ----------
+
+export async function generarTokenPlanilla(): Promise<{ ok: boolean; token?: string; texto?: string }> {
+  await soloDuenio();
+  const { randomBytes } = await import("node:crypto");
+  const { hashToken } = await import("@/lib/planilla");
+  const token = "mg_" + randomBytes(24).toString("base64url");
+  const { error } = await clienteServidor().from("ajustes").upsert({ clave: "token_planilla", valor: hashToken(token), actualizado_en: new Date().toISOString() });
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/configuracion/planilla");
+  return { ok: true, token };
+}
+
+export async function reintentarCambioPlanilla(id: number): Promise<Mensaje> {
+  await soloDuenio();
+  const { error } = await clienteServidor().from("planilla_cambios").update({ error: null }).eq("id", id);
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/configuracion/planilla");
+  return { ok: true, texto: "Se vuelve a intentar en la próxima sincronización." };
+}
+
+export async function descartarCambioPlanilla(id: number): Promise<Mensaje> {
+  await soloDuenio();
+  const { error } = await clienteServidor().from("planilla_cambios").update({ aplicado_en: new Date().toISOString(), error: "descartado" }).eq("id", id);
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/configuracion/planilla");
+  return { ok: true, texto: "Descartado." };
 }
