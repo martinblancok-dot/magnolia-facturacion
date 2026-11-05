@@ -9,6 +9,8 @@ import {
 } from "@/lib/caja";
 import { encolar, guardar, guardarVenta, leer, type TurnoLocal } from "@/lib/caja-local";
 import { guardarTurno, subirTodo, turnoGuardado } from "@/lib/caja-sync";
+import { codigoVenta, type VentaImpresa } from "@/lib/impresion";
+import { useImpresion } from "../impreso";
 
 const pesos = (n: number) =>
   new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
@@ -46,6 +48,10 @@ export function Caja() {
   const [buscandoTurno, setBuscandoTurno] = useState(true);
   const [fondoSugerido, setFondoSugerido] = useState<number | null>(null);
   const [movForm, setMovForm] = useState(false);
+  const [ultima, setUltima] = useState<VentaImpresa | null>(null);
+  const { imprimir, zona, papel, setPapel } = useImpresion();
+  // después de imprimir, el lector de códigos tiene que seguir escribiendo en el buscador
+  const volverAlLector = () => setTimeout(() => document.querySelector<HTMLInputElement>("input[inputmode=search]")?.focus(), 300);
   const entrada = useRef<HTMLInputElement>(null);
 
   // ---- Catálogo: primero lo guardado, después lo último del servidor
@@ -154,6 +160,7 @@ export function Caja() {
     setItems((it) => agregar(it, p, cantidadPedida));
     setBusqueda("");
     setAviso(null);
+    setUltima(null);
     entrada.current?.focus();
   };
 
@@ -177,7 +184,11 @@ export function Caja() {
       setAviso({ ok: false, texto: "No se pudo guardar la venta en esta compu. Probá de nuevo." });
       return;
     }
-    setAviso({ ok: true, texto: `Venta guardada: ${pesos(v.total)} en ${MEDIOS.find((m) => m.id === medio)?.nombre}` + (vuelto && vuelto > 0 ? ` · Vuelto ${pesos(vuelto)}` : "") });
+    setAviso(null);
+    setUltima({
+      id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio: MEDIOS.find((m) => m.id === medio)?.nombre ?? medio,
+      total: v.total, paga_con: v.paga_con, items: v.items.map((i) => ({ nombre: i.nombre, cantidad: i.cantidad, precio_unitario: i.precio_unitario, total: i.total })),
+    });
     setItems([]);
     setPagaCon("");
     setMedio("efectivo");
@@ -234,6 +245,7 @@ export function Caja() {
 
   return (
     <div className="flex min-h-dvh flex-col">
+      {zona}
       <header className="flex items-center gap-3 border-b border-linea bg-white px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <Link href="/ventas" className="text-sm text-suave underline">Menú</Link>
         <span className="font-semibold text-marca">Caja · {nombreLocal}</span>
@@ -388,6 +400,24 @@ export function Caja() {
           </button>
 
           {aviso && <p className={`rounded-lg px-3 py-2 text-sm ${aviso.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{aviso.texto}</p>}
+
+          {ultima && items.length === 0 && (
+            <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-3">
+              <p className="text-sm text-green-900">
+                ✓ Venta <b>{codigoVenta(ultima.id)}</b> guardada: <b>{pesos(ultima.total)}</b> en {ultima.medio}
+                {ultima.paga_con && ultima.paga_con > ultima.total ? <> · Vuelto <b>{pesos(ultima.paga_con - ultima.total)}</b></> : null}
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
+                <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "cambio"); volverAlLector(); }}>Ticket de cambio</button>
+              </div>
+              <label className="flex items-center justify-between gap-2 text-xs text-suave">Papel
+                <select value={papel} onChange={(e) => setPapel(e.target.value as "80" | "58" | "a4")} className="rounded border border-linea bg-white px-1 py-0.5">
+                  <option value="80">Ticket 80 mm</option><option value="58">Ticket 58 mm</option><option value="a4">Hoja A4</option>
+                </select>
+              </label>
+            </div>
+          )}
 
           <p className="text-xs text-suave">
             {catalogo ? `${catalogo.productos.length} productos en esta compu` : "Sin catálogo"}

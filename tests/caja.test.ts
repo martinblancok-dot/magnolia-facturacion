@@ -75,3 +75,17 @@ describe("importar Precios Deco", () => {
     expect(r.salteadas).toBe(1);
   });
 });
+
+import { codigoVenta, rangoCodigo, venceCambio } from "@/lib/impresion";
+describe("ticket de cambio", () => {
+  it("código y búsqueda por código", () => {
+    const id = "3f9a0c21-1b2c-4d5e-8f90-123456789abc";
+    expect(codigoVenta(id)).toBe("3F9A0C21");
+    const [a, b] = rangoCodigo(" 3f9a0c21 ")!;
+    expect(id >= a && id <= b).toBe(true);
+    expect(rangoCodigo("123")).toBeNull();
+  });
+  it("vence a los 15 días", () => {
+    expect(venceCambio("2026-11-04T15:00:00Z").toISOString()).toBe("2026-11-19T15:00:00.000Z");
+  });
+});

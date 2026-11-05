@@ -38,3 +38,27 @@ body {
 
 /* En iPhone, campos con letra de 16px para que no haga zoom al tocarlos */
 .campo { font-size: 16px; }
+
+/* ---------- Impresión de recibos y tickets ---------- */
+#zona-impresion { display: none; }
+@media print {
+  body * { visibility: hidden !important; }
+  #zona-impresion, #zona-impresion * { visibility: visible !important; }
+  #zona-impresion { display: block; position: absolute; left: 0; top: 0; color: #000; background: #fff; }
+  #zona-impresion[data-papel="80"] { width: 72mm; }
+  #zona-impresion[data-papel="58"] { width: 48mm; }
+  #zona-impresion[data-papel="a4"] { width: 80mm; margin: 10mm; }
+  /* cuando se imprime una página que no es un recibo (ej. el reporte de cierre), se ve normal */
+  body:not(:has(#zona-impresion)) * { visibility: visible !important; }
+}
+@page { margin: 3mm; }
+.impreso { font-family: ui-monospace, "Courier New", monospace; font-size: 11px; line-height: 1.35; }
+#zona-impresion[data-papel="58"] .impreso { font-size: 9.5px; }
+.impreso hr { border: 0; border-top: 1px dashed #000; margin: 5px 0; }
+.impreso .t-centro { text-align: center; }
+.impreso .t-grande { font-size: 1.35em; font-weight: 700; }
+.impreso .t-negrita { font-weight: 700; }
+.impreso .t-chico { font-size: 0.85em; }
+.impreso .fila { display: flex; justify-content: space-between; gap: 8px; }
+.impreso .item { margin-bottom: 2px; }
+.impreso svg { margin: 4px auto; }
