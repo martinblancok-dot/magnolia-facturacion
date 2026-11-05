@@ -83,6 +83,7 @@ export function agregar(items: ItemCarrito[], p: ProductoCaja, cantidad = 1): It
 
 export interface VentaParaSubir {
   id: string;
+  turno_id?: string | null;
   local_id: number;
   terminal: string;
   creada_en: string;
@@ -116,6 +117,7 @@ export function validarVenta(v: unknown): string | null {
   if (!MEDIOS.some((m) => m.id === x.medio_pago)) return "medio de pago inválido";
   if (!Array.isArray(x.items) || x.items.length === 0 || x.items.length > 500) return "sin productos";
   if (isNaN(Date.parse(x.creada_en))) return "fecha inválida";
+  if (x.turno_id && !/^[0-9a-f-]{36}$/i.test(String(x.turno_id))) return "turno inválido";
   let suma = 0;
   for (const it of x.items) {
     if (!it.nombre || !(Number(it.cantidad) > 0) || !(Number(it.precio_unitario) >= 0)) return "producto inválido";

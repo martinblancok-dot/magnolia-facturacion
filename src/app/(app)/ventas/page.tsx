@@ -35,7 +35,10 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Ventas</h1>
+        <div>
+          <h1 className="text-2xl font-semibold">Ventas</h1>
+          <Link href="/cierres" className="text-sm text-marca underline">Cierres de caja y arqueos →</Link>
+        </div>
         <div className="flex items-center gap-2 text-sm">
           <Link href={url(restarDias(dia, 1), local)} className="boton-borde !px-4 !py-2">←</Link>
           <span className="w-28 text-center font-semibold">{dia === hoy ? "Hoy" : fechaCorta(dia)}</span>

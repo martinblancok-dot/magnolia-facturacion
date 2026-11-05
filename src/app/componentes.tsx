@@ -80,6 +80,7 @@ export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<v
   const abajo = ["/caja", "/ventas", "/stock", "/cobros", "/mas"];
   const nombres: Record<string, string> = { "/mas": "Más" };
   const activo = (href: string) =>
+    href === "/ventas" ? ruta.startsWith("/ventas") || ruta.startsWith("/cierres") :
     href === "/mas" ? ["/mas", "/productos", "/facturas", "/monotributo", "/configuracion"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
   return (
     <>

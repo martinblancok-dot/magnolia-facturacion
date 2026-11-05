@@ -1,0 +1,46 @@
+// GET: resumen del turno para cerrar (trae cobros nuevos de Mercado Pago). POST: cierra el turno con el arqueo.
+import { NextResponse } from "next/server";
+import { totalBilletes } from "@/lib/cierre";
+import { clienteServidor } from "@/lib/supabase/almacen";
+import { clienteUsuario } from "@/lib/supabase/sesion";
+import { calcularCierre } from "@/lib/supabase/turnos";
+
+export const maxDuration = 60;
+
+async function usuario() {
+  const { data } = await (await clienteUsuario()).auth.getUser();
+  return data.user;
+}
+
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  if (!(await usuario())) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
+  const { id } = await ctx.params;
+  const c = await calcularCierre(clienteServidor(), id, true);
+  if (!c) return NextResponse.json({ error: "turno no encontrado" }, { status: 404 });
+  return NextResponse.json(c);
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const u = await usuario();
+  if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
+  const { id } = await ctx.params;
+  const b = (await req.json().catch(() => null)) as { billetes?: Record<string, number>; monedas?: number; deja_en_caja?: number; notas?: string } | null;
+  if (!b) return NextResponse.json({ error: "datos inválidos" }, { status: 400 });
+  const db = clienteServidor();
+  const c = await calcularCierre(db, id, false);
+  if (!c) return NextResponse.json({ error: "turno no encontrado" }, { status: 404 });
+  if (c.turno.cerrada_en) return NextResponse.json({ error: "esta caja ya está cerrada" }, { status: 409 });
+
+  const billetes = Object.fromEntries(Object.entries(b.billetes ?? {}).map(([k, v]) => [k, Math.max(0, Math.floor(Number(v) || 0))]));
+  const contado = totalBilletes(billetes, Math.max(0, Number(b.monedas) || 0));
+  const deja = Math.max(0, Number(b.deja_en_caja) || 0);
+  const { error } = await db.from("turnos_caja").update({
+    cerrada_en: new Date().toISOString(), cerrada_por: u.id,
+    efectivo_esperado: c.resumen.efectivoEsperado, efectivo_contado: contado,
+    diferencia: Math.round((contado - c.resumen.efectivoEsperado) * 100) / 100,
+    deja_en_caja: Math.min(deja, contado), billetes: { ...billetes, monedas: Number(b.monedas) || 0 },
+    resumen: { ...c.resumen, alertas: c.alertas, top: c.top }, notas: String(b.notas ?? "").slice(0, 500) || null,
+  }).eq("id", id).is("cerrada_en", null);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true, contado, esperado: c.resumen.efectivoEsperado });
+}

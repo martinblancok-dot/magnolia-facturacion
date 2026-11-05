@@ -7,7 +7,8 @@ import {
   agregar, armarVenta, buscar, MEDIOS, precioUnitario, redondear, totales,
   type ItemCarrito, type MedioPago, type ProductoCaja,
 } from "@/lib/caja";
-import { borrarVenta, guardar, guardarVenta, leer, ventasPendientes } from "@/lib/caja-local";
+import { encolar, guardar, guardarVenta, leer, type TurnoLocal } from "@/lib/caja-local";
+import { guardarTurno, subirTodo, turnoGuardado } from "@/lib/caja-sync";
 
 const pesos = (n: number) =>
   new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
@@ -41,8 +42,11 @@ export function Caja() {
   const [estado, setEstado] = useState<Estado>("conectado");
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [varios, setVarios] = useState(false);
+  const [turno, setTurno] = useState<TurnoLocal | null>(null);
+  const [buscandoTurno, setBuscandoTurno] = useState(true);
+  const [fondoSugerido, setFondoSugerido] = useState<number | null>(null);
+  const [movForm, setMovForm] = useState(false);
   const entrada = useRef<HTMLInputElement>(null);
-  const subiendo = useRef(false);
 
   // ---- Catálogo: primero lo guardado, después lo último del servidor
   const actualizarCatalogo = useCallback(async () => {
@@ -60,27 +64,12 @@ export function Caja() {
     }
   }, []);
 
-  // ---- Subir ventas pendientes
+  // ---- Subir lo pendiente (aperturas, retiros y ventas)
   const subir = useCallback(async () => {
-    if (subiendo.current) return;
-    subiendo.current = true;
-    try {
-      const ventas = await ventasPendientes();
-      setPendientes(ventas.length);
-      if (ventas.length === 0) return;
-      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas }) });
-      if (r.status === 401) { setEstado("sin-sesion"); return; }
-      if (!r.ok) throw new Error();
-      const d = (await r.json()) as { recibidas: string[]; rechazadas: { id: string; motivo: string }[] };
-      for (const id of d.recibidas) await borrarVenta(id);
-      setPendientes(ventas.length - d.recibidas.length);
-      setEstado("conectado");
-      if (d.rechazadas.length) setAviso({ ok: false, texto: `${d.rechazadas.length} venta(s) no se pudieron subir: ${d.rechazadas[0].motivo}` });
-    } catch {
-      setEstado("sin-conexion");
-    } finally {
-      subiendo.current = false;
-    }
+    const r = await subirTodo();
+    setPendientes(r.pendientes);
+    setEstado(r.estado);
+    if (r.rechazos.length) setAviso({ ok: false, texto: `${r.rechazos.length} venta(s) no se pudieron subir: ${r.rechazos[0]}` });
   }, []);
 
   useEffect(() => {
@@ -110,6 +99,46 @@ export function Caja() {
       clearInterval(catalogoCada);
     };
   }, [actualizarCatalogo, subir]);
+
+  // ---- Turno de caja: el guardado en esta compu, o uno abierto en el servidor para este local
+  useEffect(() => {
+    if (!local) return;
+    let cancelado = false;
+    (async () => {
+      const t = turnoGuardado(local);
+      if (t) { if (!cancelado) { setTurno(t); setBuscandoTurno(false); } return; }
+      try {
+        const r = await fetch(`/api/caja/sync?local=${local}`, { cache: "no-store" });
+        if (r.ok) {
+          const d = await r.json();
+          if (!cancelado && d.abierto) { guardarTurno(d.abierto); setTurno(d.abierto); }
+          if (!cancelado) setFondoSugerido(d.ultimoDeja === null ? null : Number(d.ultimoDeja));
+        }
+      } catch {}
+      if (!cancelado) setBuscandoTurno(false);
+    })();
+    return () => { cancelado = true; };
+  }, [local]);
+
+  const abrirCaja = async (fondo: number) => {
+    if (!local) return;
+    const t: TurnoLocal = { id: crypto.randomUUID(), local_id: local, terminal: idTerminal(), abierta_en: new Date().toISOString(), fondo_inicial: fondo };
+    await encolar({ id: t.id, clase: "turno", datos: t });
+    guardarTurno(t);
+    setTurno(t);
+    setAviso({ ok: true, texto: `Caja abierta con ${pesos(fondo)} de cambio.` });
+    subir();
+    setTimeout(() => entrada.current?.focus(), 50);
+  };
+
+  const registrarMovimiento = async (tipo: "retiro" | "gasto" | "ingreso", monto: number, motivo: string) => {
+    if (!turno || !(monto > 0)) return;
+    const id = crypto.randomUUID();
+    await encolar({ id, clase: "movimiento", datos: { id, turno_id: turno.id, tipo, monto, motivo, creado_en: new Date().toISOString() } });
+    setMovForm(false);
+    setAviso({ ok: true, texto: `${tipo === "retiro" ? "Retiro" : tipo === "gasto" ? "Gasto" : "Ingreso"} de ${pesos(monto)} anotado.` });
+    subir();
+  };
 
   // ---- Búsqueda
   const { cantidadPedida, textoBuscado } = useMemo(() => {
@@ -141,7 +170,7 @@ export function Caja() {
   const cobrar = async () => {
     if (!local || items.length === 0) return;
     if (medio === "efectivo" && pago > 0 && pago < t.total) { setAviso({ ok: false, texto: "El pago es menor al total." }); return; }
-    const v = armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID());
+    const v = { ...armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID()), turno_id: turno?.id ?? null };
     try {
       await guardarVenta(v);
     } catch {
@@ -152,7 +181,6 @@ export function Caja() {
     setItems([]);
     setPagaCon("");
     setMedio("efectivo");
-    setPendientes((n) => n + 1);
     entrada.current?.focus();
     subir();
   };
@@ -179,11 +207,39 @@ export function Caja() {
     );
   }
 
+  // ---- Abrir caja
+  if (!turno) {
+    return (
+      <main className="mx-auto mt-16 max-w-md px-6">
+        <h1 className="text-2xl font-semibold">Abrir caja · {nombreLocal}</h1>
+        {buscandoTurno ? <p className="mt-4 text-suave">Buscando caja abierta…</p> : (
+          <form className="tarjeta mt-6 space-y-4" onSubmit={(e) => {
+            e.preventDefault();
+            const n = Number(String(new FormData(e.currentTarget).get("fondo")).replace(/\./g, "").replace(",", "."));
+            if (n >= 0) abrirCaja(n);
+          }}>
+            <label className="block">
+              <span className="etiqueta">Efectivo de cambio con el que arranca la caja</span>
+              <input name="fondo" className="campo !text-lg" inputMode="decimal" autoFocus required defaultValue={fondoSugerido ?? ""} placeholder="0" />
+              {fondoSugerido !== null && <span className="ayuda block">En el último cierre se dejaron {pesos(fondoSugerido)}.</span>}
+            </label>
+            <button className="boton w-full justify-center !py-3 text-base">Abrir caja</button>
+            {estado === "sin-conexion" && <p className="text-sm text-amber-800">Sin internet: la caja se abre igual y se avisa al servidor cuando vuelva la conexión.</p>}
+          </form>
+        )}
+        <p className="mt-4 text-center text-sm"><Link href="/ventas" className="text-suave underline">Ir al menú</Link></p>
+      </main>
+    );
+  }
+
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex items-center gap-3 border-b border-linea bg-white px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <Link href="/ventas" className="text-sm text-suave underline">Menú</Link>
         <span className="font-semibold text-marca">Caja · {nombreLocal}</span>
+        <span className="hidden text-sm text-suave sm:inline">abierta {new Date(turno.abierta_en).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}</span>
+        <button className="text-sm text-suave underline" onClick={() => setMovForm((x) => !x)}>Retiro / gasto</button>
+        <Link href={`/caja/cierre?turno=${turno.id}`} className="text-sm font-semibold text-marca underline">Cerrar caja</Link>
         <span className="ml-auto flex items-center gap-2 text-sm">
           {estado === "sin-conexion" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-900">Sin internet</span>}
           {estado === "sin-sesion" && <a href="/ingresar" className="rounded-full bg-red-100 px-2 py-0.5 text-red-800 underline">Iniciá sesión para subir ventas</a>}
@@ -192,6 +248,22 @@ export function Caja() {
             : estado === "conectado" && <span className="text-green-700">✓ Al día</span>}
         </span>
       </header>
+
+      {movForm && (
+        <form className="flex flex-wrap items-end gap-3 border-b border-linea bg-marca-claro px-4 py-3" onSubmit={(e) => {
+          e.preventDefault();
+          const f = new FormData(e.currentTarget);
+          registrarMovimiento(f.get("tipo") as "retiro" | "gasto" | "ingreso", Number(String(f.get("monto")).replace(/\./g, "").replace(",", ".")), String(f.get("motivo") ?? ""));
+        }}>
+          <label><span className="etiqueta">Tipo</span>
+            <select name="tipo" className="campo"><option value="retiro">Retiro de efectivo</option><option value="gasto">Gasto (pago con la caja)</option><option value="ingreso">Ingreso de efectivo</option></select>
+          </label>
+          <label className="w-36"><span className="etiqueta">Monto</span><input name="monto" className="campo" inputMode="decimal" required /></label>
+          <label className="min-w-40 flex-1"><span className="etiqueta">Motivo</span><input name="motivo" className="campo" placeholder="Ej: pago flete, retiro Martín" /></label>
+          <button className="boton">Anotar</button>
+          <button type="button" className="text-sm text-suave underline" onClick={() => setMovForm(false)}>Cancelar</button>
+        </form>
+      )}
 
       <main className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_380px]">
         {/* Izquierda: búsqueda y carrito */}
