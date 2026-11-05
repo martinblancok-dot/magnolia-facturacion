@@ -28,7 +28,7 @@ export default async function Configuracion() {
 
   return (
     <div className="max-w-2xl">
-      <div className="flex flex-wrap items-baseline justify-between gap-2"><h1 className="text-2xl font-semibold">Configuración</h1><span className="flex gap-4"><a href="/configuracion/planilla" className="text-sm text-marca underline">Precios Deco ⇄ sistema →</a><a href="/usuarios" className="text-sm text-marca underline">Usuarios y colaboradores →</a></span></div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2"><h1 className="text-2xl font-semibold">Configuración</h1><span className="flex gap-4"><a href="/configuracion/revision" className="text-sm font-semibold text-marca underline">Revisión antes de arrancar →</a><a href="/configuracion/planilla" className="text-sm text-marca underline">Precios Deco ⇄ sistema →</a><a href="/usuarios" className="text-sm text-marca underline">Usuarios y colaboradores →</a></span></div>
       <p className="mt-1 text-suave">Tus datos para facturar. Cada uno carga los suyos con su usuario.</p>
 
       <Formulario accion={guardarConfiguracion} boton="Guardar" className="mt-6 space-y-6">

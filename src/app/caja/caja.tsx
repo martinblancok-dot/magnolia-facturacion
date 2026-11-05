@@ -128,10 +128,19 @@ export function Caja() {
   // ---- Catálogo: primero lo guardado, después lo último del servidor
   const actualizarCatalogo = useCallback(async () => {
     try {
-      const r = await fetch("/api/catalogo", { cache: "no-store" });
+      const actual = await leer<Catalogo>("catalogo");
+      const r = await fetch(`/api/catalogo${actual?.version ? `?version=${encodeURIComponent(actual.version)}` : ""}`, { cache: "no-store" });
       if (r.status === 401) { setEstado("sin-sesion"); return; }
       if (!r.ok) throw new Error();
       const d = await r.json();
+      if (d.sinCambios && actual) {
+        // Nada cambió: no hace falta bajar los 6.000 productos otra vez
+        const c = { ...actual, guardado: new Date().toISOString() };
+        await guardar("catalogo", c);
+        setCatalogo(c);
+        setEstado("conectado");
+        return;
+      }
       const c: Catalogo = { version: d.version, productos: d.productos, locales: d.locales, guardado: new Date().toISOString() };
       await guardar("catalogo", c);
       setCatalogo(c);

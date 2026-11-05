@@ -2,15 +2,12 @@
 import { NextResponse } from "next/server";
 import { totalBilletes } from "@/lib/cierre";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { clienteUsuario } from "@/lib/supabase/sesion";
+import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
 import { calcularCierre } from "@/lib/supabase/turnos";
 
 export const maxDuration = 60;
 
-async function usuario() {
-  const { data } = await (await clienteUsuario()).auth.getUser();
-  return data.user;
-}
+const usuario = usuarioDeLaSesion;
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!(await usuario())) return NextResponse.json({ error: "sin sesión" }, { status: 401 });

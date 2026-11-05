@@ -21,12 +21,25 @@ export async function clienteUsuario() {
   });
 }
 
-/** Devuelve el usuario conectado o manda a la pantalla de ingreso. */
-export async function usuarioActual() {
+export interface Usuario { id: string; email: string | null }
+
+/**
+ * Usuario conectado (o null). Verifica la firma de la sesión sin ir a Supabase cuando se puede
+ * (getClaims) y se calcula una sola vez por pedido, aunque lo pidan el menú y la página.
+ */
+export const usuarioDeLaSesion = cache(async (): Promise<Usuario | null> => {
   const sb = await clienteUsuario();
-  const { data } = await sb.auth.getUser();
-  if (!data.user) redirect("/ingresar");
-  return data.user;
+  const { data } = await sb.auth.getClaims();
+  const c = data?.claims;
+  if (!c?.sub) return null;
+  return { id: c.sub, email: (c.email as string | undefined) ?? null };
+});
+
+/** Devuelve el usuario conectado o manda a la pantalla de ingreso. */
+export async function usuarioActual(): Promise<Usuario> {
+  const u = await usuarioDeLaSesion();
+  if (!u) redirect("/ingresar");
+  return u;
 }
 
 // ---------- Permisos ----------

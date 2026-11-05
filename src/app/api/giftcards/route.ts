@@ -1,11 +1,11 @@
 // Busca una gift card por su código (para cobrar con ella en la caja).
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { clienteUsuario } from "@/lib/supabase/sesion";
+import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
 
 export async function GET(req: Request) {
-  const { data: u } = await (await clienteUsuario()).auth.getUser();
-  if (!u.user) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
+  const u = await usuarioDeLaSesion();
+  if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
   const codigo = (new URL(req.url).searchParams.get("codigo") ?? "").trim().toUpperCase().replace(/^GC/, "").replace(/[^0-9A-F]/g, "");
   if (codigo.length !== 8) return NextResponse.json({ error: "El código de la gift card tiene 8 letras y números." }, { status: 400 });
   const { data, error } = await clienteServidor().from("giftcards").select("id, codigo, monto, saldo, medio_origen, anulada, creada_en").eq("codigo", codigo).maybeSingle();

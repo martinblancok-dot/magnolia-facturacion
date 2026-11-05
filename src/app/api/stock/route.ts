@@ -1,12 +1,9 @@
 // Stock por local: GET para ver lo que dice el sistema, POST para cargar mercadería o aplicar un control.
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { clienteUsuario } from "@/lib/supabase/sesion";
+import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
 
-async function usuario() {
-  const { data } = await (await clienteUsuario()).auth.getUser();
-  return data.user;
-}
+const usuario = usuarioDeLaSesion;
 
 export async function GET(req: Request) {
   if (!(await usuario())) return NextResponse.json({ error: "sin sesión" }, { status: 401 });

@@ -14,11 +14,13 @@ export async function proxy(request: NextRequest) {
       },
     },
   });
-  const { data } = await sb.auth.getUser();
-  if (!data.user && request.nextUrl.pathname.startsWith("/api/")) {
+  // getClaims verifica la sesión sin ir a Supabase (y la renueva si venció)
+  const { data } = await sb.auth.getClaims();
+  const conectado = !!data?.claims?.sub;
+  if (!conectado && request.nextUrl.pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "sin sesión" }, { status: 401 });
   }
-  if (!data.user && !request.nextUrl.pathname.startsWith("/ingresar")) {
+  if (!conectado && !request.nextUrl.pathname.startsWith("/ingresar")) {
     return NextResponse.redirect(new URL("/ingresar", request.url));
   }
   return respuesta;

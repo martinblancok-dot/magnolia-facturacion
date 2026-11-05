@@ -2,11 +2,11 @@
 import { NextResponse } from "next/server";
 import { validarVenta } from "@/lib/caja";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { clienteUsuario } from "@/lib/supabase/sesion";
+import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
 
 export async function POST(req: Request) {
-  const { data: u } = await (await clienteUsuario()).auth.getUser();
-  if (!u.user) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
+  const u = await usuarioDeLaSesion();
+  if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
   const body = (await req.json().catch(() => null)) as { ventas?: unknown[] } | null;
   const ventas = Array.isArray(body?.ventas) ? body!.ventas.slice(0, 200) : [];
   const db = clienteServidor();
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const id = String((v as { id?: string })?.id ?? "");
     const error = validarVenta(v);
     if (error) { rechazadas.push({ id, motivo: error }); continue; }
-    const r = await db.rpc("registrar_venta", { v, usuario: u.user.id });
+    const r = await db.rpc("registrar_venta", { v, usuario: u.id });
     if (r.error) rechazadas.push({ id, motivo: r.error.message });
     else recibidas.push(id); // nueva o ya registrada: en ambos casos la caja la puede borrar
   }
