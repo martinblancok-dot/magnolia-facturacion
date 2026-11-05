@@ -5,7 +5,7 @@ import { BotonAccion, Formulario } from "../../componentes";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, hora, ORIGENES, pesos } from "@/lib/formato";
 import { clienteServidor, posiblesDuplicados } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { soloDuenio } from "@/lib/supabase/sesion";
 
 const PESTANAS = [
   { id: "revisar", texto: "Para revisar", ayuda: "Transferencias y otros cobros: decidí si son ventas." },
@@ -44,7 +44,7 @@ function Acciones({ c }: { c: Fila }) {
 }
 
 export default async function Cobros({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const ver = (await searchParams).ver ?? "revisar";
   const pestana = PESTANAS.find((p) => p.id === ver) ?? PESTANAS[0];

@@ -1,10 +1,10 @@
 import { generarPDF } from "@/lib/pdf";
 import { numeroFactura } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { soloDuenio } from "@/lib/supabase/sesion";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const { id } = await ctx.params;
   const db = clienteServidor();
   const [{ data: f }, { data: e }] = await Promise.all([

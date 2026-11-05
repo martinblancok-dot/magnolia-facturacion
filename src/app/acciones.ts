@@ -13,7 +13,7 @@ import { leerPreciosDeco, type Conflicto } from "@/lib/catalogo";
 import { abrirAdmin, adminDesbloqueado, cerrarAdmin, cifrarPin, pinCorrecto, pinGuardado } from "@/lib/admin";
 import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
-import { clienteUsuario, usuarioActual } from "@/lib/supabase/sesion";
+import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
   ok: boolean;
@@ -27,10 +27,15 @@ const arca = { pedirTicket, ultimoNumero, solicitarCAE };
 export async function ingresar(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
   const sb = await clienteUsuario();
   const { error } = await sb.auth.signInWithPassword({
-    email: String(form.get("email") ?? "").trim(),
+    email: mailDeUsuario(String(form.get("email") ?? "")),
     password: String(form.get("clave") ?? ""),
   });
-  if (error) return { ok: false, texto: "Mail o contraseña incorrectos." };
+  if (error) return { ok: false, texto: "Usuario o contraseña incorrectos." };
+  const { data } = await sb.auth.getUser();
+  if (data.user && !(await perfilDe(data.user.id)).activo) {
+    await sb.auth.signOut();
+    return { ok: false, texto: "Este usuario está dado de baja." };
+  }
   redirect("/");
 }
 
@@ -60,7 +65,7 @@ function cuitValido(c: string): boolean {
 }
 
 export async function guardarConfiguracion(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   try {
     const cuit = String(form.get("cuit") ?? "").replace(/\D/g, "");
@@ -137,7 +142,7 @@ export async function guardarConfiguracion(_prev: Mensaje | null, form: FormData
 }
 
 export async function probarARCA(): Promise<Mensaje> {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const e = await traerEmisor(db, u.id);
   if (!e) return { ok: false, texto: "Falta cargar la clave, el certificado o el punto de venta." };
@@ -157,7 +162,7 @@ export async function probarARCA(): Promise<Mensaje> {
 // ---------- Cobros ----------
 
 export async function marcarCobro(id: string, nuevo: "a_facturar" | "no_es_venta" | "revisar" | "ya_facturado") {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const { data: c } = await db.from("cobros").select("estado, usuario_id").eq("id", id).maybeSingle();
   if (!c || c.usuario_id !== u.id) return;
@@ -175,7 +180,7 @@ export async function marcarCobro(id: string, nuevo: "a_facturar" | "no_es_venta
 }
 
 export async function traerCobrosDesde(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const e = await traerEmisor(db, u.id);
   if (!e?.mpToken) return { ok: false, texto: "Primero cargá la credencial de Mercado Pago en Configuración." };
@@ -197,7 +202,7 @@ export async function traerCobrosDesde(_prev: Mensaje | null, form: FormData): P
 }
 
 export async function facturarAhora(): Promise<Mensaje> {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const e = await traerEmisor(db, u.id);
   if (!e) return { ok: false, texto: "Falta terminar la configuración." };
@@ -221,7 +226,7 @@ export async function facturarAhora(): Promise<Mensaje> {
 // ---------- Monotributo ----------
 
 export async function importarMisComprobantes(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const archivos = form.getAll("archivo").filter((f): f is File => typeof f !== "string" && f.size > 0);
   if (archivos.length === 0) return { ok: false, texto: "Elegí el archivo que bajaste de Mis Comprobantes." };
@@ -302,7 +307,7 @@ export async function anularVenta(id: string): Promise<Mensaje> {
 // ---------- Clave de administrador ----------
 
 export async function definirPin(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
-  await usuarioActual();
+  await soloDuenio();
   const actual = String(form.get("actual") ?? "");
   const nuevo = String(form.get("nuevo") ?? "");
   const repetir = String(form.get("repetir") ?? "");
@@ -379,4 +384,53 @@ export async function eliminarProducto(id: string): Promise<Mensaje> {
   if (error) return { ok: false, texto: error.message };
   revalidatePath("/productos", "layout");
   redirect("/productos");
+}
+
+// ---------- Usuarios (solo dueños) ----------
+
+const NOMBRE_USUARIO = /^[a-z0-9._-]{3,30}$/;
+
+export async function crearColaborador(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await soloDuenio();
+  const nombre = String(form.get("nombre") ?? "").trim();
+  const usuario = String(form.get("usuario") ?? "").trim().toLowerCase();
+  const clave = String(form.get("clave") ?? "");
+  if (!nombre) return { ok: false, texto: "Poné el nombre de la persona." };
+  if (!usuario.includes("@") && !NOMBRE_USUARIO.test(usuario))
+    return { ok: false, texto: "El usuario tiene que tener entre 3 y 30 letras o números, sin espacios (por ejemplo: juli)." };
+  if (clave.length < 6) return { ok: false, texto: "La contraseña tiene que tener al menos 6 caracteres." };
+  const db = clienteServidor();
+  const { data, error } = await db.auth.admin.createUser({ email: mailDeUsuario(usuario), password: clave, email_confirm: true, user_metadata: { nombre } });
+  if (error || !data.user) {
+    return { ok: false, texto: /already|registered|exists/i.test(error?.message ?? "") ? "Ya existe un usuario con ese nombre." : `No se pudo crear: ${error?.message}` };
+  }
+  const { error: e2 } = await db.from("perfiles").insert({ usuario_id: data.user.id, nombre, rol: "colaborador" });
+  if (e2) {
+    await db.auth.admin.deleteUser(data.user.id);
+    return { ok: false, texto: `No se pudo crear: ${e2.message}. ¿Corriste la migración 0009_usuarios.sql en Supabase?` };
+  }
+  revalidatePath("/usuarios");
+  return { ok: true, texto: `Listo. ${nombre} entra con el usuario "${usuario}" y la contraseña que pusiste.` };
+}
+
+export async function cambiarClaveUsuario(id: string, _prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await soloDuenio();
+  const clave = String(form.get("clave") ?? "");
+  if (clave.length < 6) return { ok: false, texto: "La contraseña tiene que tener al menos 6 caracteres." };
+  const { error } = await clienteServidor().auth.admin.updateUserById(id, { password: clave });
+  return error ? { ok: false, texto: error.message } : { ok: true, texto: "Contraseña cambiada." };
+}
+
+export async function activarUsuario(id: string, activo: boolean): Promise<Mensaje> {
+  const yo = await soloDuenio();
+  if (id === yo.id) return { ok: false, texto: "No te podés dar de baja a vos mismo." };
+  const db = clienteServidor();
+  const { data: p } = await db.from("perfiles").select("rol").eq("usuario_id", id).maybeSingle();
+  if (p?.rol === "duenio") return { ok: false, texto: "A los dueños no se los puede dar de baja desde acá." };
+  // Bloquea el ingreso y corta la sesión que tenga abierta (al renovarse, ya no puede entrar)
+  const { error } = await db.auth.admin.updateUserById(id, { ban_duration: activo ? "none" : "876000h" });
+  if (error) return { ok: false, texto: error.message };
+  await db.from("perfiles").update({ activo }).eq("usuario_id", id);
+  revalidatePath("/usuarios");
+  return { ok: true, texto: activo ? "Usuario activado de nuevo." : "Usuario dado de baja. Ya no puede entrar." };
 }

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, numeroFactura, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { soloDuenio } from "@/lib/supabase/sesion";
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
@@ -13,7 +13,7 @@ function sumarMes(mes: string, n: number): string {
 }
 
 export default async function Facturas({ searchParams }: { searchParams: Promise<{ mes?: string }> }) {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const hoy = diaArgentina();
   const pedido = (await searchParams).mes;

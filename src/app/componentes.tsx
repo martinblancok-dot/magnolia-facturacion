@@ -65,9 +65,9 @@ const ICONOS: Record<string, React.ReactNode> = {
   "/mas": <><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></>,
 };
 
-export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<void> }) {
+export function Menu({ nombre, duenio, salir }: { nombre: string; duenio: boolean; salir: () => Promise<void> }) {
   const ruta = usePathname();
-  const items = [
+  const todos = [
     { href: "/caja", texto: "Caja" },
     { href: "/ventas", texto: "Ventas" },
     { href: "/productos", texto: "Productos" },
@@ -77,11 +77,13 @@ export function Menu({ nombre, salir }: { nombre: string; salir: () => Promise<v
     { href: "/monotributo", texto: "Monotributo" },
     { href: "/configuracion", texto: "Configuración" },
   ];
-  const abajo = ["/caja", "/ventas", "/stock", "/cobros", "/mas"];
+  // Cobros, facturas, monotributo y configuración: solo Martín y Sofi
+  const items = duenio ? todos : todos.filter((i) => ["/caja", "/ventas", "/productos", "/stock"].includes(i.href));
+  const abajo = duenio ? ["/caja", "/ventas", "/stock", "/cobros", "/mas"] : ["/caja", "/ventas", "/productos", "/stock", "/mas"];
   const nombres: Record<string, string> = { "/mas": "Más" };
   const activo = (href: string) =>
     href === "/ventas" ? ruta.startsWith("/ventas") || ruta.startsWith("/cierres") :
-    href === "/mas" ? ["/mas", "/productos", "/facturas", "/monotributo", "/configuracion"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
+    href === "/mas" ? ["/mas", ...(duenio ? ["/productos"] : []), "/facturas", "/monotributo", "/configuracion", "/usuarios"].some((r) => ruta.startsWith(r)) : ruta.startsWith(href);
   return (
     <>
       <header className="sticky top-0 z-20 border-b border-linea bg-white/95 pt-[env(safe-area-inset-top)] backdrop-blur">

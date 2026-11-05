@@ -5,7 +5,7 @@ import { infoCertificado } from "@/lib/arca/certificados";
 import { fechaCorta } from "@/lib/formato";
 import { descifrar } from "@/lib/secretos";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { soloDuenio } from "@/lib/supabase/sesion";
 
 function estadoCert(cifrado: string | null | undefined): string {
   if (!cifrado) return "No cargado";
@@ -18,7 +18,7 @@ function estadoCert(cifrado: string | null | undefined): string {
 }
 
 export default async function Configuracion() {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const hayPin = !!(await pinGuardado());
   const [{ data: e }, { data: s }] = await Promise.all([
@@ -28,7 +28,7 @@ export default async function Configuracion() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold">Configuración</h1>
+      <div className="flex flex-wrap items-baseline justify-between gap-2"><h1 className="text-2xl font-semibold">Configuración</h1><a href="/usuarios" className="text-sm text-marca underline">Usuarios y colaboradores →</a></div>
       <p className="mt-1 text-suave">Tus datos para facturar. Cada uno carga los suyos con su usuario.</p>
 
       <Formulario accion={guardarConfiguracion} boton="Guardar" className="mt-6 space-y-6">

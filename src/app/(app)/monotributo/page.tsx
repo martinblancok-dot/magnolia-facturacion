@@ -4,7 +4,7 @@ import { diaArgentina } from "@/lib/fechas";
 import { pesos } from "@/lib/formato";
 import { mesSiguiente, periodosRecategorizacion, totalesPorMes, ultimos12, type Movimiento } from "@/lib/periodos";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { soloDuenio } from "@/lib/supabase/sesion";
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const mesCorto = (m: string) => `${MESES[Number(m.slice(5)) - 1]} ${m.slice(2, 4)}`;
@@ -20,7 +20,7 @@ async function todos<T>(consulta: (desde: number, hasta: number) => PromiseLike<
 }
 
 export default async function Monotributo() {
-  const u = await usuarioActual();
+  const u = await soloDuenio();
   const db = clienteServidor();
   const hoy = diaArgentina();
 
