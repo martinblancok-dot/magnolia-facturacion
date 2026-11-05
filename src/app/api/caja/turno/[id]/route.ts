@@ -15,9 +15,16 @@ async function usuario() {
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   if (!(await usuario())) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
   const { id } = await ctx.params;
-  const c = await calcularCierre(clienteServidor(), id, true);
+  const db = clienteServidor();
+  const c = await calcularCierre(db, id, true);
   if (!c) return NextResponse.json({ error: "turno no encontrado" }, { status: 404 });
-  return NextResponse.json(c);
+  // Las otras compus que están trabajando en esta caja (para no cerrar con ventas sin subir)
+  const [{ data: compus }, { data: perfiles }] = await Promise.all([
+    db.from("terminales").select("id, usuario_id, pendientes, visto_en").eq("turno_id", id),
+    db.from("perfiles").select("usuario_id, nombre"),
+  ]);
+  const terminales = (compus ?? []).map((t) => ({ ...t, nombre: perfiles?.find((p) => p.usuario_id === t.usuario_id)?.nombre ?? "" }));
+  return NextResponse.json({ ...c, terminales });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {

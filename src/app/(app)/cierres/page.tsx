@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { soloDuenio } from "@/lib/supabase/sesion";
 
 type R = { total?: number; cantidad?: number; alertas?: { ventasSinCobro?: unknown[]; cobrosSinVenta?: unknown[] } } | null;
 
 export default async function Cierres() {
-  await usuarioActual();
+  await soloDuenio();
   const db = clienteServidor();
   const [{ data: turnos }, { data: locales }] = await Promise.all([
     db.from("turnos_caja").select("id, local_id, abierta_en, cerrada_en, fondo_inicial, efectivo_esperado, efectivo_contado, diferencia, resumen").order("abierta_en", { ascending: false }).limit(60),

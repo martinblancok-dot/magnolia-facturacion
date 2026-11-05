@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { usuarioConRol } from "@/lib/supabase/sesion";
 
-const PARA_TODOS = ["/cierres", "/giftcards", "/stock", "/productos"];
+const PARA_TODOS = ["/giftcards", "/stock", "/productos"];
 const LINKS = [
   { href: "/cierres", t: "Cierres de caja", d: "Arqueos, reportes y pagos revisados con Mercado Pago" },
   { href: "/giftcards", t: "Gift cards", d: "Saldos y búsqueda por código" },

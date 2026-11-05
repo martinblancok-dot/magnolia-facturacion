@@ -80,6 +80,12 @@ export function CierreCaja() {
   }
 
   const { resumen, alertas, turno } = datos;
+  // Otras compus que trabajaron en esta caja (visto en los últimos 15 minutos o con ventas sin subir)
+  let estaCompu = "";
+  try { estaCompu = localStorage.getItem("magnolia-terminal") ?? ""; } catch {}
+  const otras = ((datos as Cierre & { terminales?: { id: string; nombre: string; pendientes: number; visto_en: string }[] }).terminales ?? [])
+    .filter((t) => t.id !== estaCompu);
+  const otrasConPendientes = otras.filter((t) => t.pendientes > 0);
   const hayAlertas = alertas.ventasSinCobro.length > 0 || alertas.cobrosSinVenta.length > 0;
 
   return (
@@ -89,6 +95,23 @@ export function CierreCaja() {
         <Link href="/caja" className="text-sm text-suave underline">← Caja</Link>
       </div>
       <p className="text-suave">Abierta a las {hora(turno.abierta_en)} con {pesos(Number(turno.fondo_inicial))} de cambio.</p>
+
+      {otras.length > 0 && fase !== "cerrada" && (
+        <section className={`tarjeta ${otrasConPendientes.length ? "border-red-300 bg-red-50" : ""}`}>
+          <h2 className="font-semibold">Otras compus en esta caja</h2>
+          <ul className="mt-2 space-y-1 text-sm">
+            {otras.map((t) => (
+              <li key={t.id} className={t.pendientes > 0 ? "font-semibold text-red-800" : "text-green-800"}>
+                {t.pendientes > 0 ? "⚠" : "✓"} Compu {t.id.slice(0, 4).toUpperCase()}{t.nombre ? ` (${t.nombre})` : ""}: {t.pendientes > 0 ? `${t.pendientes} ventas sin subir` : "al día"} · última señal {hora(t.visto_en)}
+              </li>
+            ))}
+          </ul>
+          {otrasConPendientes.length > 0 && (
+            <p className="mt-2 text-sm text-red-800">Antes de cerrar, esperá a que esas compus suban sus ventas (tienen que decir “✓ Al día”) y tocá <b>Actualizar</b>. Si cerrás ahora, esas ventas no entran en este arqueo.</p>
+          )}
+          <button className="boton-borde mt-3" onClick={cargar}>Actualizar</button>
+        </section>
+      )}
 
       <section className="tarjeta">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

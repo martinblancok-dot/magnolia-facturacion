@@ -1,21 +1,27 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Imprimir } from "./imprimir";
 import { MEDIOS } from "@/lib/caja";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { usuarioConRol } from "@/lib/supabase/sesion";
 import { calcularCierre } from "@/lib/supabase/turnos";
 
 const ORIGEN: Record<string, string> = { posnet: "Posnet", qr: "QR", transferencia: "Transferencia", otro: "Otro" };
 
 export default async function ReporteCierre({ params }: { params: Promise<{ id: string }> }) {
-  await usuarioActual();
+  const { u, rol } = await usuarioConRol();
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const db = clienteServidor();
   const c = await calcularCierre(db, id, false);
   if (!c) notFound();
+  if (rol !== "duenio") {
+    // Un colaborador solo ve el reporte de una caja en la que trabajó
+    const t0 = c.turno as { abierta_por?: string | null; cerrada_por?: string | null };
+    const { data: compu } = await db.from("terminales").select("id").eq("turno_id", id).eq("usuario_id", u.id).limit(1).maybeSingle();
+    if (t0.abierta_por !== u.id && t0.cerrada_por !== u.id && !compu) redirect("/ventas");
+  }
   const { data: local } = await db.from("locales").select("nombre").eq("id", c.turno.local_id).maybeSingle();
   const t = c.turno;
   const r = c.resumen;

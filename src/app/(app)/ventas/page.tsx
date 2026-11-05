@@ -17,8 +17,12 @@ type Venta = {
   venta_items: { n: number; nombre: string; sku: string | null; cantidad: number; precio_unitario: number; total: number }[];
 };
 
+function hace(horas: number) {
+  return new Date(Date.now() - horas * 3600_000).toISOString();
+}
+
 export default async function Ventas({ searchParams }: { searchParams: Promise<{ dia?: string; local?: string; codigo?: string }> }) {
-  const { rol } = await usuarioConRol();
+  const { rol, u } = await usuarioConRol();
   const duenio = rol === "duenio";
   const db = clienteServidor();
   const sp = await searchParams;
@@ -29,13 +33,22 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
 
   const buscado = sp.codigo?.trim() ?? "";
   const rango = buscado ? rangoCodigo(buscado) : null;
+  // Colaboradores: solo ven su caja abierta (la que abrieron o en la que trabaja su compu), en tiempo real
+  let misTurnos: { id: string; local_id: number; abierta_en: string }[] | null = null;
+  if (!duenio && !rango) {
+    const { data: compus } = await db.from("terminales").select("turno_id").eq("usuario_id", u.id).gte("visto_en", hace(16)).not("turno_id", "is", null);
+    const ids = [...new Set((compus ?? []).map((t) => t.turno_id as string))];
+    const { data: abiertos } = await db.from("turnos_caja").select("id, local_id, abierta_en, abierta_por").is("cerrada_en", null);
+    misTurnos = (abiertos ?? []).filter((t) => ids.includes(t.id) || t.abierta_por === u.id);
+  }
   const BASE = "id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, venta_items(n, nombre, sku, cantidad, precio_unitario, total)";
   const PEDIDOS = ", anulacion_pedida_por, anulacion_pedida_en, anulacion_motivo, anulacion_rechazada_en";
   const consulta = (cols: string) => {
     let q = db.from("ventas").select(cols).order("creada_en", { ascending: false }).limit(1000);
     if (rango) q = q.gte("id", rango[0]).lte("id", rango[1]);
+    else if (misTurnos) q = q.in("turno_id", misTurnos.length ? misTurnos.map((t) => t.id) : ["00000000-0000-0000-0000-000000000000"]);
     else q = q.gte("creada_en", `${dia}T00:00:00-03:00`).lt("creada_en", `${siguiente}T00:00:00-03:00`);
-    if (local && !rango) q = q.eq("local_id", local);
+    if (local && !rango && !misTurnos) q = q.eq("local_id", local);
     return q;
   };
   const [primera, { data: locales }, { data: perfiles }, pendientesQ] = await Promise.all([
@@ -71,15 +84,24 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Ventas</h1>
-          <span className="flex gap-4"><Link href="/cierres" className="text-sm text-marca underline">Cierres de caja y arqueos →</Link>
-            <Link href="/giftcards" className="text-sm text-marca underline">Gift cards →</Link></span>
+          <h1 className="text-2xl font-semibold">{misTurnos ? "Ventas de tu caja" : "Ventas"}</h1>
+          {misTurnos ? (
+            <p className="text-sm text-suave">
+              {misTurnos.length
+                ? misTurnos.map((t) => `${nombreLocal(t.local_id)}, abierta desde las ${new Date(t.abierta_en).toLocaleTimeString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit" })}`).join(" · ")
+                : "No tenés una caja abierta. Cuando abras la caja (o te sumes a una), acá vas a ver sus ventas."}
+              {" · "}<Link href="/giftcards" className="text-marca underline">Gift cards →</Link>
+            </p>
+          ) : (
+            <span className="flex gap-4"><Link href="/cierres" className="text-sm text-marca underline">Cierres de caja y arqueos →</Link>
+              <Link href="/giftcards" className="text-sm text-marca underline">Gift cards →</Link></span>
+          )}
         </div>
-        <div className="flex items-center gap-2 text-sm">
+        {!misTurnos && <div className="flex items-center gap-2 text-sm">
           <Link href={url(restarDias(dia, 1), local)} className="boton-borde !px-4 !py-2">←</Link>
           <span className="w-28 text-center font-semibold">{dia === hoy ? "Hoy" : fechaCorta(dia)}</span>
           {dia < hoy ? <Link href={url(siguiente, local)} className="boton-borde !px-4 !py-2">→</Link> : <span className="w-11" />}
-        </div>
+        </div>}
       </div>
 
       {pendientes.length > 0 && (
@@ -112,11 +134,11 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
         <div className={`rounded-lg px-3 py-2 text-sm ${rango && ventas.length ? "bg-green-50 text-green-900" : "bg-red-50 text-red-800"}`}>
           {!rango ? "El código del ticket tiene 8 letras y números (por ejemplo 3F9A0C21)." :
             ventas.length === 0 ? `No encontré ninguna venta con el código ${buscado.toUpperCase()}.` :
-            `Venta ${buscado.toUpperCase()} encontrada.`} <Link href="/ventas" className="underline">Volver al día</Link>
+            `Venta ${buscado.toUpperCase()} encontrada.`} <Link href="/ventas" className="underline">{duenio ? "Volver al día" : "Volver a tu caja"}</Link>
         </div>
       )}
 
-      {!buscado && <div className="flex flex-wrap gap-2 text-sm">
+      {!buscado && !misTurnos && <div className="flex flex-wrap gap-2 text-sm">
         {[null, 1, 2].map((l) => (
           <Link key={String(l)} href={url(dia, l)} className={`rounded-full border px-3 py-1.5 ${local === l ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>
             {l ? nombreLocal(l) : "Los dos locales"}

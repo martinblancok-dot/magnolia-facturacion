@@ -8,7 +8,7 @@ import {
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
 } from "@/lib/caja";
 import { encolar, guardar, guardarVenta, leer, type TurnoLocal } from "@/lib/caja-local";
-import { guardarTurno, subirTodo, turnoGuardado } from "@/lib/caja-sync";
+import { guardarTurno, subirTodo, turnoDeEstaCompu } from "@/lib/caja-sync";
 import { codigoVenta, type VentaImpresa } from "@/lib/impresion";
 import { useImpresion } from "../impreso";
 
@@ -59,7 +59,9 @@ export function Caja() {
   const [varios, setVarios] = useState(false);
   const [turno, setTurno] = useState<TurnoLocal | null>(null);
   const [buscandoTurno, setBuscandoTurno] = useState(true);
-  const [fondoSugerido, setFondoSugerido] = useState<number | null>(null);
+  // Al abrir: de qué local, y si ya hay una caja abierta ahí (otra compu) para sumarse
+  const [localApertura, setLocalApertura] = useState<number | null>(null);
+  const [cajasAbiertas, setCajasAbiertas] = useState<Record<number, { abierto: TurnoLocal | null; ultimoDeja: number | null } | null>>({});
   const [movForm, setMovForm] = useState(false);
   const [ultima, setUltima] = useState<VentaImpresa | null>(null);
   // Gift cards: vender una (modo "giftcard") o cobrar con una (medio "giftcard")
@@ -100,9 +102,9 @@ export function Caja() {
   const nuevaVenta = () => {
     const n = carritoNuevo();
     setCarritos((cs) => [...cs, n]); setActivoId(n.id);
-    setUltima(null); setAviso(null); setConfirmarAnular(false); enfocar();
+    setAviso(null); setConfirmarAnular(false); enfocar();
   };
-  const irA = (id: string) => { setActivoId(id); setUltima(null); setAviso(null); setConfirmarAnular(false); enfocar(); };
+  const irA = (id: string) => { setActivoId(id); setAviso(null); setConfirmarAnular(false); enfocar(); };
   /** Saca la venta de las abiertas (si es la única, queda una vacía). */
   const cerrarCarrito = (id: string) => {
     setCarritos((cs) => {
@@ -175,28 +177,69 @@ export function Caja() {
     };
   }, [actualizarCatalogo, subir]);
 
-  // ---- Turno de caja: el guardado en esta compu, o uno abierto en el servidor para este local
+  // ---- Turno de caja: el que quedó abierto en esta compu; si no hay, se elige local al abrir
   useEffect(() => {
-    if (!local) return;
-    let cancelado = false;
-    (async () => {
-      const t = turnoGuardado(local);
-      if (t) { if (!cancelado) { setTurno(t); setBuscandoTurno(false); } return; }
+    const t = turnoDeEstaCompu();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (t) { setLocal(t.local_id); setTurno(t); }
+    setBuscandoTurno(false);
+  }, []);
+
+  // Estado de las cajas de los dos locales (para la pantalla de apertura)
+  const verCajas = useCallback(async () => {
+    const r: Record<number, { abierto: TurnoLocal | null; ultimoDeja: number | null } | null> = {};
+    await Promise.all([1, 2].map(async (l) => {
       try {
-        const r = await fetch(`/api/caja/sync?local=${local}`, { cache: "no-store" });
-        if (r.ok) {
-          const d = await r.json();
-          if (!cancelado && d.abierto) { guardarTurno(d.abierto); setTurno(d.abierto); }
-          if (!cancelado) setFondoSugerido(d.ultimoDeja === null ? null : Number(d.ultimoDeja));
+        const x = await fetch(`/api/caja/sync?local=${l}`, { cache: "no-store" });
+        if (x.ok) { const d = await x.json(); r[l] = { abierto: d.abierto ?? null, ultimoDeja: d.ultimoDeja === null ? null : Number(d.ultimoDeja) }; }
+        else r[l] = null;
+      } catch { r[l] = null; }
+    }));
+    setCajasAbiertas(r);
+  }, []);
+  useEffect(() => {
+    if (turno || buscandoTurno) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    verCajas();
+  }, [turno, buscandoTurno, verCajas]);
+
+  // ---- Cada 30 segundos: avisar que esta compu está en la caja y ver si la cerraron desde otra
+  const pendientesRef = useRef(0);
+  useEffect(() => { pendientesRef.current = pendientes; }, [pendientes]);
+  useEffect(() => {
+    if (!turno) return;
+    const latir = async () => {
+      try {
+        const r = await fetch("/api/caja/latido", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ terminal: idTerminal(), local_id: turno.local_id, turno_id: turno.id, pendientes: pendientesRef.current }),
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.turno === "cerrado") {
+          guardarTurno(null);
+          setTurno(null);
+          setAviso({ ok: false, texto: "Esta caja se cerró desde otra compu. Para seguir vendiendo, abrí una caja nueva." });
         }
       } catch {}
-      if (!cancelado) setBuscandoTurno(false);
-    })();
-    return () => { cancelado = true; };
-  }, [local]);
+    };
+    latir();
+    const cada = setInterval(latir, 30_000);
+    return () => clearInterval(cada);
+  }, [turno]);
 
-  const abrirCaja = async (fondo: number) => {
-    if (!local) return;
+  const sumarseACaja = (t: TurnoLocal) => {
+    setLocal(t.local_id);
+    try { localStorage.setItem("magnolia-local", String(t.local_id)); } catch {}
+    guardarTurno(t);
+    setTurno(t);
+    setAviso({ ok: true, texto: "Te sumaste a la caja abierta: las ventas de esta compu van al mismo cierre." });
+    setTimeout(() => entrada.current?.focus(), 50);
+  };
+
+  const abrirCaja = async (local: number, fondo: number) => {
+    setLocal(local);
+    try { localStorage.setItem("magnolia-local", String(local)); } catch {}
     const t: TurnoLocal = { id: crypto.randomUUID(), local_id: local, terminal: idTerminal(), abierta_en: new Date().toISOString(), fondo_inicial: fondo };
     await encolar({ id: t.id, clase: "turno", datos: t });
     guardarTurno(t);
@@ -244,7 +287,6 @@ export function Caja() {
     setModoGc(false);
     setBusqueda("");
     setAviso(null);
-    setUltima(null);
     entrada.current?.focus();
   };
 
@@ -322,49 +364,60 @@ export function Caja() {
     terminarVenta(v, {});
   };
 
-  const elegirLocal = (id: number) => {
-    setLocal(id);
-    try { localStorage.setItem("magnolia-local", String(id)); } catch {}
-    setTimeout(() => entrada.current?.focus(), 50);
-  };
-
   const nombreLocal = catalogo?.locales.find((l) => l.id === local)?.nombre ?? (local === 2 ? "Magnolia Beauty" : local === 1 ? "Magnolia Home" : "");
 
-  // ---- Elegir local (una vez por compu)
-  if (!local) {
+  // ---- Abrir caja (o sumarse a la que ya está abierta en ese local)
+  if (!turno || !local) {
     const locales = catalogo?.locales?.length ? catalogo.locales : [{ id: 1, nombre: "Magnolia Home" }, { id: 2, nombre: "Magnolia Beauty" }];
+    const elegido = localApertura;
+    const info = elegido ? cajasAbiertas[elegido] : undefined;
+    const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
     return (
-      <main className="mx-auto mt-20 max-w-md px-6 text-center">
-        <h1 className="text-2xl font-semibold">¿En qué local está esta caja?</h1>
-        <p className="mt-2 text-suave">Se elige una sola vez por compu. Las ventas se registran en ese local.</p>
-        <div className="mt-6 grid gap-3">
-          {locales.map((l) => <button key={l.id} className="boton justify-center !py-4 text-base" onClick={() => elegirLocal(l.id)}>{l.nombre}</button>)}
-        </div>
-      </main>
-    );
-  }
+      <main className="mx-auto mt-12 max-w-lg px-6 pb-10">
+        <h1 className="text-2xl font-semibold">Abrir caja</h1>
+        {aviso && !aviso.ok && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">{aviso.texto}</p>}
+        {buscandoTurno ? <p className="mt-4 text-suave">Un momento…</p> : (
+          <>
+            <p className="mt-4 mb-2 text-sm font-semibold">¿De qué local?</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {locales.map((l) => {
+                const c = cajasAbiertas[l.id];
+                const activo = elegido === l.id;
+                return (
+                  <button key={l.id} onClick={() => setLocalApertura(l.id)}
+                    className={`rounded-2xl border-2 p-4 text-left transition ${activo ? "border-marca bg-marca-claro" : "border-linea bg-white hover:border-marca/50"}`}>
+                    <span className="block text-lg font-semibold">{l.nombre}</span>
+                    <span className={`text-sm ${c?.abierto ? "text-green-800" : "text-suave"}`}>
+                      {c === undefined ? "Buscando…" : c === null ? "Sin conexión" : c.abierto ? `● Caja abierta desde las ${hora(c.abierto.abierta_en)}` : "Caja cerrada"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
 
-  // ---- Abrir caja
-  if (!turno) {
-    return (
-      <main className="mx-auto mt-16 max-w-md px-6">
-        <h1 className="text-2xl font-semibold">Abrir caja · {nombreLocal}</h1>
-        {buscandoTurno ? <p className="mt-4 text-suave">Buscando caja abierta…</p> : (
-          <form className="tarjeta mt-6 space-y-4" onSubmit={(e) => {
-            e.preventDefault();
-            const n = Number(String(new FormData(e.currentTarget).get("fondo")).replace(/\./g, "").replace(",", "."));
-            if (n >= 0) abrirCaja(n);
-          }}>
-            <label className="block">
-              <span className="etiqueta">Efectivo de cambio con el que arranca la caja</span>
-              <input name="fondo" className="campo !text-lg" inputMode="decimal" autoFocus required defaultValue={fondoSugerido ?? ""} placeholder="0" />
-              {fondoSugerido !== null && <span className="ayuda block">En el último cierre se dejaron {pesos(fondoSugerido)}.</span>}
-            </label>
-            <button className="boton w-full justify-center !py-3 text-base">Abrir caja</button>
-            {estado === "sin-conexion" && <p className="text-sm text-amber-800">Sin internet: la caja se abre igual y se avisa al servidor cuando vuelva la conexión.</p>}
-          </form>
+            {elegido && info?.abierto ? (
+              <div className="tarjeta mt-5 space-y-3">
+                <p className="text-sm">Ya hay una caja abierta en <b>{locales.find((l) => l.id === elegido)?.nombre}</b> desde las {hora(info.abierto.abierta_en)}. Esta compu se suma a esa caja: las ventas de todas las compus van al mismo cierre y arqueo.</p>
+                <button className="boton w-full justify-center !py-3 text-base" onClick={() => sumarseACaja(info.abierto!)}>Sumarme a la caja abierta</button>
+              </div>
+            ) : elegido ? (
+              <form className="tarjeta mt-5 space-y-4" onSubmit={(e) => {
+                e.preventDefault();
+                const n = Number(String(new FormData(e.currentTarget).get("fondo")).replace(/\./g, "").replace(",", "."));
+                if (n >= 0) abrirCaja(elegido, n);
+              }}>
+                <label className="block">
+                  <span className="etiqueta">Efectivo de cambio con el que arranca la caja</span>
+                  <input key={elegido} name="fondo" className="campo !text-lg" inputMode="decimal" autoFocus required defaultValue={info?.ultimoDeja ?? ""} placeholder="0" />
+                  {info?.ultimoDeja != null && <span className="ayuda block">En el último cierre se dejaron {pesos(info.ultimoDeja)}.</span>}
+                </label>
+                <button className="boton w-full justify-center !py-3 text-base">Abrir caja en {locales.find((l) => l.id === elegido)?.nombre}</button>
+                {info === null && <p className="text-sm text-amber-800">Sin internet no se puede ver si otra compu ya abrió la caja de este local. Si es así, mejor esperá a tener conexión y sumate a esa.</p>}
+              </form>
+            ) : null}
+          </>
         )}
-        <p className="mt-4 text-center text-sm"><Link href="/ventas" className="text-suave underline">Ir al menú</Link></p>
+        <p className="mt-6 text-center text-sm"><Link href="/ventas" className="text-suave underline">Ir al menú</Link></p>
       </main>
     );
   }
@@ -540,7 +593,7 @@ export function Caja() {
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button className="boton-borde !border-linea !text-tinta" onClick={() => setVarios((v) => !v)}>+ Varios (sin código)</button>
-            {!modoGc && <button className="boton-borde !border-linea !text-tinta" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setUltima(null); setAviso(null); }}>🎁 Vender gift card</button>}
+            {!modoGc && <button className="boton-borde !border-linea !text-tinta" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setAviso(null); }}>🎁 Vender gift card</button>}
             {!vacio(c) && (confirmarAnular ? (
               <span className="ml-auto flex items-center gap-2 rounded-xl bg-red-50 px-3 py-1.5 text-sm text-red-800">
                 ¿Anular esta venta?
@@ -575,6 +628,22 @@ export function Caja() {
         {/* ---------- Derecha: cobro ---------- */}
         <section className="flex shrink-0 flex-col rounded-2xl border border-linea bg-white lg:min-h-0 lg:shrink lg:overflow-hidden">
           <div className="flex-1 space-y-4 p-4 md:p-5 lg:overflow-auto">
+            {/* Venta recién cobrada mientras ya se atiende a otro cliente: se puede imprimir igual */}
+            {ultima && hayCarrito && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm">
+                <span className="font-semibold text-green-900">✓ {ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo}` : `Venta ${codigoVenta(ultima.id)}`}</span>
+                <span className="ml-auto flex items-center gap-1.5">
+                  {ultima.giftcard_nueva
+                    ? <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>Imprimir gift card</button>
+                    : <>
+                        <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
+                        <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "cambio"); volverAlLector(); }}>Ticket de cambio</button>
+                      </>}
+                  <button aria-label="Cerrar" className="px-1 text-lg leading-none text-green-900/60 hover:text-green-900" onClick={() => setUltima(null)}>×</button>
+                </span>
+              </div>
+            )}
+
             {/* Total */}
             {modoGc ? (
               <label className="block">
@@ -680,6 +749,7 @@ export function Caja() {
                 <p className="flex items-center gap-2 font-semibold text-green-900">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-700 text-sm text-white">✓</span>
                   {ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo} vendida` : `Venta ${codigoVenta(ultima.id)} cobrada`}
+                  <button aria-label="Cerrar" className="ml-auto text-xl leading-none text-green-900/60 hover:text-green-900" onClick={() => setUltima(null)}>×</button>
                 </p>
                 <p className="text-sm text-green-900">
                   {ultima.giftcard

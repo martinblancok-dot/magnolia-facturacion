@@ -1,6 +1,5 @@
 import { definirPin, guardarConfiguracion, probarARCA } from "../../acciones";
 import { pinGuardado } from "@/lib/admin";
-import { LocalCompu } from "./local-compu";
 import { BotonAccion, Formulario } from "../../componentes";
 import { infoCertificado } from "@/lib/arca/certificados";
 import { fechaCorta } from "@/lib/formato";
@@ -125,12 +124,6 @@ export default async function Configuracion() {
           <label><span className="etiqueta">Clave nueva</span><input name="nuevo" type="password" className="campo" autoComplete="new-password" required minLength={4} /></label>
           <label><span className="etiqueta">Repetir clave nueva</span><input name="repetir" type="password" className="campo" autoComplete="new-password" required /></label>
         </Formulario>
-      </section>
-
-      <section className="tarjeta mt-6">
-        <h2 className="font-semibold">Local de la caja en esta compu</h2>
-        <p className="ayuda">Se elige una sola vez por compu. Cambiarlo solo hace falta si movés esta compu al otro local; cerrá la caja antes.</p>
-        <LocalCompu />
       </section>
 
       <section className="tarjeta mt-6">

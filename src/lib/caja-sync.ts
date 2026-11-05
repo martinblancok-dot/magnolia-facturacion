@@ -61,3 +61,8 @@ export function turnoGuardado(local: number): import("./caja-local").TurnoLocal 
 export function guardarTurno(t: import("./caja-local").TurnoLocal | null) {
   try { if (t) localStorage.setItem(CLAVE_TURNO, JSON.stringify(t)); else localStorage.removeItem(CLAVE_TURNO); } catch {}
 }
+
+/** El turno guardado en esta compu, sea del local que sea. */
+export function turnoDeEstaCompu(): import("./caja-local").TurnoLocal | null {
+  try { return JSON.parse(localStorage.getItem(CLAVE_TURNO) ?? "null"); } catch { return null; }
+}
