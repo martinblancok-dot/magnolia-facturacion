@@ -57,6 +57,7 @@ body {
 .impreso hr { border: 0; border-top: 1px dashed #000; margin: 5px 0; }
 .impreso .t-centro { text-align: center; }
 .impreso .t-grande { font-size: 1.35em; font-weight: 700; }
+.impreso .t-enorme { font-size: 2em; font-weight: 700; margin: 0.2em 0; }
 .impreso .t-negrita { font-weight: 700; }
 .impreso .t-chico { font-size: 0.85em; }
 .impreso .fila { display: flex; justify-content: space-between; gap: 8px; }

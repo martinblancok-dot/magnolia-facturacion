@@ -40,7 +40,7 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
         <p className="mt-1 text-2xl font-semibold">{pesos(r.total)}</p>
         <p className="text-sm text-suave">{r.cantidad} ventas · ticket promedio {pesos(r.ticketPromedio)}{r.anuladas ? ` · ${r.anuladas} anuladas` : ""}</p>
         <ul className="mt-3 space-y-0.5 text-sm">
-          {MEDIOS.map((m) => fila(`${m.nombre} (${r.porMedio[m.id].cantidad})`, pesos(r.porMedio[m.id].total)))}
+          {MEDIOS.filter((m) => !m.oculto || r.porMedio[m.id]?.cantidad).map((m) => fila(`${m.id === "giftcard" ? "Pagadas solo con gift card" : m.nombre} (${r.porMedio[m.id].cantidad})`, pesos(r.porMedio[m.id].total)))}
         </ul>
       </section>
 

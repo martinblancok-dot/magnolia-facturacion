@@ -1,17 +1,21 @@
 // Lógica de la caja (se usa en el navegador y en el servidor).
 
-export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr";
+export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr" | "giftcard";
 export type TipoPrecio = "efectivo" | "diez" | "lista";
 
 // efectivo: precio con 15% de la planilla · diez: 10% sobre lista · lista: sin descuento
-export const MEDIOS: { id: MedioPago; nombre: string; precio: TipoPrecio }[] = [
+// oculto: no aparece como botón en la caja (QR no se usa; la gift card tiene su propio botón)
+export const MEDIOS: { id: MedioPago; nombre: string; precio: TipoPrecio; oculto?: boolean }[] = [
   { id: "efectivo", nombre: "Efectivo", precio: "efectivo" },
   { id: "transferencia", nombre: "Transferencia", precio: "diez" },
   { id: "debito", nombre: "Débito", precio: "diez" },
   { id: "credito", nombre: "Crédito 1 pago", precio: "diez" },
   { id: "cuotas", nombre: "Crédito en cuotas", precio: "lista" },
-  { id: "qr", nombre: "QR Mercado Pago", precio: "lista" },
+  { id: "qr", nombre: "QR Mercado Pago", precio: "lista", oculto: true },
+  { id: "giftcard", nombre: "Gift card", precio: "lista", oculto: true },
 ];
+export const MEDIOS_CAJA = MEDIOS.filter((m) => !m.oculto);
+export const nombreMedio = (id: string) => MEDIOS.find((m) => m.id === id)?.nombre ?? id;
 
 /** 10% de descuento sobre lista, redondeado a $50 (como los precios de la planilla). */
 export const conDiez = (lista: number) => Math.round((lista * 0.9) / 50) * 50;
@@ -91,7 +95,67 @@ export interface VentaParaSubir {
   total: number;
   total_lista: number;
   paga_con: number | null;
-  items: { producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; total: number }[];
+  items: { producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; total: number; ajuste?: boolean }[];
+  /** Venta de una gift card nueva: se crea al subir la venta. */
+  giftcard_nueva?: { id: string; monto: number; medio: MedioPago } | null;
+  /** Pago con gift card: cuánto se descuenta de su saldo (no entra a la caja). */
+  giftcard_id?: string | null;
+  giftcard_monto?: number;
+}
+
+// ---------- Gift cards ----------
+
+export interface GiftCard {
+  id: string;
+  codigo: string;
+  saldo: number;
+  medio_origen: MedioPago; // cómo se pagó: define el descuento al usarla
+}
+
+/** Código de la gift card: las primeras 8 letras de su id. */
+export const codigoGiftcard = (id: string) => id.replace(/-/g, "").slice(0, 8).toUpperCase();
+
+/**
+ * Cuánto cubre la gift card y cuánto falta. Los productos van al precio del medio con que
+ * se pagó la tarjeta; si el saldo no alcanza, la parte que falta se cobra al precio del otro medio.
+ */
+export function cobroConGiftcard(items: ItemCarrito[], gc: Pick<GiftCard, "saldo" | "medio_origen">, resto: MedioPago) {
+  const precioGc = totales(items, gc.medio_origen).total;
+  const usa = redondear(Math.min(Math.max(gc.saldo, 0), precioGc));
+  if (precioGc <= 0 || usa >= precioGc) return { precioGc, usa, falta: 0, ajuste: 0, saldoQueda: redondear(gc.saldo - usa) };
+  const cubierto = usa / precioGc;
+  const falta = Math.round(totales(items, resto).total * (1 - cubierto)); // la parte que no cubre, al precio del otro medio
+  const ajuste = redondear(falta - (precioGc - usa));
+  return { precioGc, usa, falta, ajuste, saldoQueda: 0 };
+}
+
+export function armarVentaGiftcard(
+  items: ItemCarrito[], gc: GiftCard, resto: MedioPago, local: number, terminal: string, pagaCon: number | null, id: string, ahora = new Date(),
+): VentaParaSubir {
+  const c = cobroConGiftcard(items, gc, resto);
+  const base = armarVenta(items, gc.medio_origen, local, terminal, null, id, ahora);
+  const lineas = [...base.items];
+  if (c.ajuste !== 0) {
+    lineas.push({ producto_id: null, barcode: null, sku: null, nombre: `Diferencia de precio pagada con ${nombreMedio(resto)}`, cantidad: 1, precio_unitario: c.ajuste, total: c.ajuste, ajuste: true });
+  }
+  const medio = c.falta > 0 ? resto : "giftcard";
+  return {
+    ...base, items: lineas, medio_pago: medio, total: c.falta,
+    paga_con: medio === "efectivo" ? pagaCon : null, giftcard_id: gc.id, giftcard_monto: c.usa,
+  };
+}
+
+/** Venta de una gift card: se cobra el valor de la tarjeta, sin descuento, con el medio que sea. */
+export function armarVentaNuevaGiftcard(
+  monto: number, medio: MedioPago, local: number, terminal: string, pagaCon: number | null, id: string, idTarjeta: string, ahora = new Date(),
+): VentaParaSubir {
+  const m = redondear(monto);
+  return {
+    id, local_id: local, terminal, creada_en: ahora.toISOString(), medio_pago: medio, total: m, total_lista: m,
+    paga_con: medio === "efectivo" ? pagaCon : null,
+    items: [{ producto_id: null, barcode: null, sku: null, nombre: `Gift card ${codigoGiftcard(idTarjeta)}`, cantidad: 1, precio_unitario: m, total: m }],
+    giftcard_nueva: { id: idTarjeta, monto: m, medio },
+  };
 }
 
 export function armarVenta(
@@ -118,12 +182,22 @@ export function validarVenta(v: unknown): string | null {
   if (!Array.isArray(x.items) || x.items.length === 0 || x.items.length > 500) return "sin productos";
   if (isNaN(Date.parse(x.creada_en))) return "fecha inválida";
   if (x.turno_id && !/^[0-9a-f-]{36}$/i.test(String(x.turno_id))) return "turno inválido";
+  const uuid = /^[0-9a-f-]{36}$/i;
+  const gcMonto = Number(x.giftcard_monto ?? 0);
+  if (gcMonto < 0 || (gcMonto > 0 && !uuid.test(String(x.giftcard_id)))) return "gift card inválida";
+  if (x.medio_pago === "giftcard" && !(gcMonto > 0)) return "falta la gift card";
+  if (x.giftcard_nueva) {
+    const g = x.giftcard_nueva;
+    if (!uuid.test(String(g.id)) || !(Number(g.monto) > 0) || g.monto !== x.total || gcMonto > 0 || x.medio_pago === "giftcard") return "gift card nueva inválida";
+    if (x.items.length !== 1 || x.items[0].producto_id) return "gift card nueva inválida";
+  }
   let suma = 0;
   for (const it of x.items) {
-    if (!it.nombre || !(Number(it.cantidad) > 0) || !(Number(it.precio_unitario) >= 0)) return "producto inválido";
+    const negativoPermitido = it.ajuste === true && !it.producto_id && gcMonto > 0;
+    if (!it.nombre || !(Number(it.cantidad) > 0) || !(Number(it.precio_unitario) >= 0 || negativoPermitido)) return "producto inválido";
     if (Math.abs(redondear(it.precio_unitario * it.cantidad) - it.total) > 0.011) return "total de producto no coincide";
     suma += it.total;
   }
-  if (Math.abs(redondear(suma) - x.total) > 0.05) return "el total no coincide con los productos";
+  if (Math.abs(redondear(suma) - (x.total + gcMonto)) > 0.05) return "el total no coincide con los productos";
   return null;
 }

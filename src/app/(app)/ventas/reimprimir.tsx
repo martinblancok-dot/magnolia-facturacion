@@ -8,7 +8,9 @@ export function Reimprimir({ venta }: { venta: VentaImpresa }) {
     <>
       {zona}
       <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "recibo")}>Recibo X</button>
-      <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "cambio")}>Ticket de cambio</button>
+      {venta.giftcard_nueva
+        ? <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "giftcard")}>Gift card</button>
+        : <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "cambio")}>Ticket de cambio</button>}
     </>
   );
 }

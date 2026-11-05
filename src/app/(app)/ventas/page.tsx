@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { anularVenta, pedirAnulacion, rechazarAnulacion } from "../../acciones";
 import { BotonAccion, Formulario } from "../../componentes";
-import { MEDIOS } from "@/lib/caja";
+import { MEDIOS_CAJA, nombreMedio } from "@/lib/caja";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -13,6 +13,7 @@ type Venta = {
   id: string; numero: number; local_id: number; creada_en: string; medio_pago: string; total: number; total_lista: number;
   anulada: boolean; paga_con: number | null;
   anulacion_pedida_por?: string | null; anulacion_pedida_en?: string | null; anulacion_motivo?: string | null; anulacion_rechazada_en?: string | null;
+  giftcard_id?: string | null; giftcard_monto?: number | null;
   venta_items: { n: number; nombre: string; sku: string | null; cantidad: number; precio_unitario: number; total: number }[];
 };
 
@@ -43,14 +44,26 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
     db.from("perfiles").select("usuario_id, nombre"),
     duenio ? db.from("ventas").select(BASE + PEDIDOS).not("anulacion_pedida_en", "is", null).eq("anulada", false).order("anulacion_pedida_en") : Promise.resolve({ data: [] }),
   ]);
-  // si todavía no se corrió la migración 0010, se ve igual que antes
-  const { data } = primera.error ? await consulta(BASE) : primera;
+  // si todavía no se corrieron las migraciones nuevas, se ve igual que antes
+  const conGc = primera.error ? null : await consulta(BASE + PEDIDOS + ", giftcard_id, giftcard_monto");
+  const { data } = conGc && !conGc.error ? conGc : primera.error ? await consulta(BASE) : primera;
   const ventas = (data ?? []) as unknown as Venta[];
   const pendientes = ((pendientesQ.data ?? []) as unknown as Venta[]);
+  const conTarjeta = ventas.filter((v) => Number(v.giftcard_monto) > 0 || v.venta_items.some((i) => i.nombre.startsWith("Gift card ")));
+  const { data: tarjetas } = conTarjeta.length
+    ? await db.from("giftcards").select("id, codigo, monto, venta_id")
+        .or([...conTarjeta.map((v) => `venta_id.eq.${v.id}`), ...conTarjeta.filter((v) => v.giftcard_id).map((v) => `id.eq.${v.giftcard_id}`)].join(","))
+    : { data: [] as { id: string; codigo: string; monto: number; venta_id: string }[] };
+  const tarjetaUsada = (v: Venta) => (Number(v.giftcard_monto) > 0 ? tarjetas?.find((g) => g.id === v.giftcard_id) : undefined);
+  const tarjetaVendida = (v: Venta) => tarjetas?.find((g) => g.venta_id === v.id);
+  const medioTexto = (v: Venta) => Number(v.giftcard_monto) > 0
+    ? `Gift card ${pesos(Number(v.giftcard_monto))}${Number(v.total) > 0 ? ` + ${nombreMedio(v.medio_pago)}` : ""}`
+    : nombreMedio(v.medio_pago);
   const quien = (id?: string | null) => perfiles?.find((p) => p.usuario_id === id)?.nombre || "un colaborador";
   const validas = ventas.filter((v) => !v.anulada);
+  const canjeado = validas.reduce((s, v) => s + Number(v.giftcard_monto ?? 0), 0);
   const total = validas.reduce((s, v) => s + Number(v.total), 0);
-  const porMedio = MEDIOS.map((m) => ({ ...m, total: validas.filter((v) => v.medio_pago === m.id).reduce((s, v) => s + Number(v.total), 0), n: validas.filter((v) => v.medio_pago === m.id).length }));
+  const porMedio = MEDIOS_CAJA.map((m) => ({ ...m, total: validas.filter((v) => v.medio_pago === m.id).reduce((s, v) => s + Number(v.total), 0), n: validas.filter((v) => v.medio_pago === m.id).length }));
   const nombreLocal = (id: number) => locales?.find((l) => l.id === id)?.nombre ?? `Local ${id}`;
   const url = (d: string, l: number | null) => `/ventas?dia=${d}${l ? `&local=${l}` : ""}`;
 
@@ -59,7 +72,8 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Ventas</h1>
-          <Link href="/cierres" className="text-sm text-marca underline">Cierres de caja y arqueos →</Link>
+          <span className="flex gap-4"><Link href="/cierres" className="text-sm text-marca underline">Cierres de caja y arqueos →</Link>
+            <Link href="/giftcards" className="text-sm text-marca underline">Gift cards →</Link></span>
         </div>
         <div className="flex items-center gap-2 text-sm">
           <Link href={url(restarDias(dia, 1), local)} className="boton-borde !px-4 !py-2">←</Link>
@@ -75,7 +89,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
             {pendientes.map((v) => (
               <li key={v.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <span className="text-sm">
-                  <b>#{v.numero}</b> · {new Date(v.creada_en).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · {nombreLocal(v.local_id)} · <b>{pesos(Number(v.total))}</b> en {MEDIOS.find((m) => m.id === v.medio_pago)?.nombre}
+                  <b>#{v.numero}</b> · {new Date(v.creada_en).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · {nombreLocal(v.local_id)} · <b>{pesos(Number(v.total) + Number(v.giftcard_monto ?? 0))}</b> · {medioTexto(v)}
                   <span className="block text-amber-900">Pide {quien(v.anulacion_pedida_por)}: “{v.anulacion_motivo}”</span>
                   <span className="block text-suave">{v.venta_items.map((i) => `${Number(i.cantidad)} × ${i.nombre}`).join(" · ")}</span>
                 </span>
@@ -115,6 +129,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
           <p className="text-sm text-suave">Vendido</p>
           <p className="mt-1 text-2xl font-semibold">{pesos(total)}</p>
           <p className="text-sm text-suave">{validas.length} ventas{ventas.length > validas.length ? ` · ${ventas.length - validas.length} anuladas` : ""}</p>
+          {canjeado > 0 && <p className="mt-1 text-sm text-suave">Además se usaron {pesos(canjeado)} de gift cards (no entran a la caja)</p>}
         </div>
         <div className="tarjeta md:col-span-2">
           <p className="text-sm text-suave">Por medio de pago</p>
@@ -138,7 +153,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                     <span>
                       <b>#{v.numero}</b> · {buscado ? `${new Date(v.creada_en).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })} ` : ""}{hora(v.creada_en)} · {nombreLocal(v.local_id)} <span className="font-mono text-xs text-suave">{codigoVenta(v.id)}</span>
                       <span className="block text-sm text-suave">
-                        {MEDIOS.find((m) => m.id === v.medio_pago)?.nombre} · {v.venta_items.reduce((s, i) => s + Number(i.cantidad), 0)} u.
+                        {medioTexto(v)} · {v.venta_items.reduce((s, i) => s + Number(i.cantidad), 0)} u.
                         {v.anulada && <span className="ml-2 font-semibold text-red-700">ANULADA</span>}
                         {!v.anulada && v.anulacion_pedida_en && <span className="ml-2 font-semibold text-amber-700">ANULACIÓN PEDIDA</span>}
                       </span>
@@ -162,7 +177,9 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                           {enPlazo ? "Dentro del plazo de cambio" : "Plazo de cambio vencido"} (vence {vence.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })})
                         </p>
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <Reimprimir venta={{ id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio: MEDIOS.find((m) => m.id === v.medio_pago)?.nombre ?? v.medio_pago,
+                          <Reimprimir venta={{ id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio: nombreMedio(v.medio_pago),
+                            giftcard: tarjetaUsada(v) ? { codigo: tarjetaUsada(v)!.codigo, usado: Number(v.giftcard_monto), saldo: null } : null,
+                            giftcard_nueva: tarjetaVendida(v) ? { codigo: tarjetaVendida(v)!.codigo, monto: Number(tarjetaVendida(v)!.monto) } : null,
                             total: Number(v.total), paga_con: v.paga_con == null ? null : Number(v.paga_con),
                             items: [...v.venta_items].sort((a, b) => a.n - b.n).map((i) => ({ nombre: i.nombre, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), total: Number(i.total) })) }} />
                           {duenio && <BotonAccion accion={anularVenta.bind(null, v.id)} texto="Anular venta" borde />}

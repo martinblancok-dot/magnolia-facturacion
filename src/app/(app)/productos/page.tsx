@@ -14,7 +14,7 @@ export default async function Productos({ searchParams }: { searchParams: Promis
   const q = ((await searchParams).q ?? "").trim();
   const { count } = await db.from("productos").select("id", { count: "exact", head: true }).eq("activo", true);
   let consulta = db.from("productos")
-    .select("id, barcode, sku, nombre, categoria, proveedor, precio_lista, precio_efectivo, stock(local_id, cantidad)")
+    .select("id, barcode, sku, nombre, categoria, precio_lista, precio_efectivo, stock(local_id, cantidad)")
     .eq("activo", true).order("nombre").limit(80);
   if (q) {
     const limpio = q.replace(/[%,()*"\\]/g, " ").trim();
@@ -56,7 +56,7 @@ export default async function Productos({ searchParams }: { searchParams: Promis
       )}
 
       <form className="flex gap-2">
-        <input name="q" defaultValue={q} placeholder="Buscar por nombre, SKU, código, proveedor o categoría" className="campo" />
+        <input name="q" defaultValue={q} placeholder="Buscar por nombre, SKU, código o categoría" className="campo" />
         <button className="boton">Buscar</button>
       </form>
 
@@ -70,7 +70,7 @@ export default async function Productos({ searchParams }: { searchParams: Promis
                 <>
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{p.nombre}</span>
-                    <span className="text-sm text-suave">{p.sku} · {p.categoria ?? "Sin categoría"} · {p.proveedor}</span>
+                    <span className="text-sm text-suave">{p.sku} · {p.categoria ?? "Sin categoría"}</span>
                   </span>
                   <span className="text-right text-sm">
                     <span className="block font-semibold">{pesos(Number(p.precio_lista))} <span className="font-normal text-suave">lista</span></span>

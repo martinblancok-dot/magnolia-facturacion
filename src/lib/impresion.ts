@@ -23,7 +23,13 @@ export interface VentaImpresa {
   total: number;
   paga_con?: number | null;
   items: { nombre: string; cantidad: number; precio_unitario: number; total: number }[];
+  /** Se pagó (en parte o todo) con una gift card. */
+  giftcard?: { codigo: string; usado: number; saldo: number | null } | null;
+  /** En esta venta se vendió una gift card. */
+  giftcard_nueva?: { codigo: string; monto: number } | null;
 }
+
+export type TipoImpreso = "recibo" | "cambio" | "giftcard";
 
 /** Rango de ids que empiezan con ese código, para buscar la venta en la base. */
 export function rangoCodigo(texto: string): [string, string] | null {

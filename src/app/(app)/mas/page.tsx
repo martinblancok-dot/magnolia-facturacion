@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { usuarioConRol } from "@/lib/supabase/sesion";
 
-const PARA_TODOS = ["/cierres", "/stock", "/productos"];
+const PARA_TODOS = ["/cierres", "/giftcards", "/stock", "/productos"];
 const LINKS = [
   { href: "/cierres", t: "Cierres de caja", d: "Arqueos, reportes y pagos revisados con Mercado Pago" },
+  { href: "/giftcards", t: "Gift cards", d: "Saldos y búsqueda por código" },
   { href: "/stock", t: "Stock", d: "Cargar mercadería y controlar con el lector" },
   { href: "/cobros", t: "Cobros de Mercado Pago", d: "Posnet, QR y transferencias para facturar" },
   { href: "/facturas", t: "Facturas", d: "Facturas emitidas y sus PDF" },

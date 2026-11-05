@@ -97,8 +97,8 @@ export function CierreCaja() {
         </div>
         <p className="text-sm text-suave">{resumen.cantidad} ventas · ticket promedio {pesos(resumen.ticketPromedio)}{resumen.anuladas ? ` · ${resumen.anuladas} anuladas` : ""}</p>
         <ul className="mt-3 grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
-          {MEDIOS.map((m) => (
-            <li key={m.id} className="flex justify-between"><span>{m.nombre} <span className="text-suave">({resumen.porMedio[m.id].cantidad})</span></span><b>{pesos(resumen.porMedio[m.id].total)}</b></li>
+          {MEDIOS.filter((m) => !m.oculto || resumen.porMedio[m.id]?.cantidad).map((m) => (
+            <li key={m.id} className="flex justify-between"><span>{m.id === "giftcard" ? "Pagadas solo con gift card" : m.nombre} <span className="text-suave">({resumen.porMedio[m.id].cantidad})</span></span><b>{pesos(resumen.porMedio[m.id].total)}</b></li>
           ))}
         </ul>
       </section>
