@@ -15,6 +15,21 @@ import { useImpresion } from "../impreso";
 const pesos = (n: number) =>
   new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
 
+/** Una venta en curso. Puede haber varias abiertas a la vez (se atiende a más de una persona). */
+interface Carrito {
+  id: string;
+  items: ItemCarrito[];
+  medio: MedioPago;
+  pagaCon: string;
+  modoGc: boolean; // vendiendo una gift card
+  montoGc: string;
+  gc: GiftCard | null; // gift card con la que se paga
+  codigoGc: string;
+  medioResto: MedioPago;
+}
+const carritoNuevo = (): Carrito => ({ id: crypto.randomUUID(), items: [], medio: "efectivo", pagaCon: "", modoGc: false, montoGc: "", gc: null, codigoGc: "", medioResto: "efectivo" });
+const vacio = (c: Carrito) => c.items.length === 0 && !c.modoGc && !c.gc;
+
 interface Catalogo {
   version: string;
   productos: ProductoCaja[];
@@ -36,10 +51,7 @@ export function Caja() {
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
   const [cargandoCat, setCargandoCat] = useState(true);
   const [local, setLocal] = useState<number | null>(null);
-  const [items, setItems] = useState<ItemCarrito[]>([]);
-  const [medio, setMedio] = useState<MedioPago>("efectivo");
   const [busqueda, setBusqueda] = useState("");
-  const [pagaCon, setPagaCon] = useState("");
   const [pendientes, setPendientes] = useState(0);
   const [estado, setEstado] = useState<Estado>("conectado");
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -50,13 +62,60 @@ export function Caja() {
   const [movForm, setMovForm] = useState(false);
   const [ultima, setUltima] = useState<VentaImpresa | null>(null);
   // Gift cards: vender una (modo "giftcard") o cobrar con una (medio "giftcard")
-  const [modoGc, setModoGc] = useState(false);
-  const [montoGc, setMontoGc] = useState("");
-  const [gc, setGc] = useState<GiftCard | null>(null);
-  const [codigoGc, setCodigoGc] = useState("");
   const [buscandoGc, setBuscandoGc] = useState(false);
-  const [medioResto, setMedioResto] = useState<MedioPago>("efectivo");
   const [cobrando, setCobrando] = useState(false);
+  const [confirmarAnular, setConfirmarAnular] = useState(false);
+
+  // ---- Ventas abiertas (pestañas). Se guardan en la compu por si se recarga la página.
+  const [carritos, setCarritos] = useState<Carrito[]>(() => [carritoNuevo()]);
+  const [activoId, setActivoId] = useState<string>(() => "");
+  const c = carritos.find((x) => x.id === activoId) ?? carritos[0];
+  const cambiar = (patch: Partial<Carrito> | ((x: Carrito) => Partial<Carrito>)) => {
+    const id = c.id; // la venta que estaba abierta cuando se pidió el cambio
+    setCarritos((cs) => cs.map((x) => (x.id === id ? { ...x, ...(typeof patch === "function" ? patch(x) : patch) } : x)));
+  };
+  const setter = <K extends keyof Carrito>(k: K) => (v: Carrito[K] | ((prev: Carrito[K]) => Carrito[K])) =>
+    cambiar((x) => ({ [k]: typeof v === "function" ? (v as (p: Carrito[K]) => Carrito[K])(x[k]) : v }) as Partial<Carrito>);
+  const { items, medio, pagaCon, modoGc, montoGc, gc, codigoGc, medioResto } = c;
+  const setItems = setter("items"), setMedio = setter("medio"), setPagaCon = setter("pagaCon"), setModoGc = setter("modoGc");
+  const setMontoGc = setter("montoGc"), setGc = setter("gc"), setCodigoGc = setter("codigoGc"), setMedioResto = setter("medioResto");
+
+  useEffect(() => {
+    if (!local) return;
+    // Las ventas abiertas viven en esta compu (localStorage): se leen recién en el navegador.
+    try {
+      const guardados = JSON.parse(localStorage.getItem(`magnolia-carritos-${local}`) ?? "null") as Carrito[] | null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (guardados?.length) { setCarritos(guardados.map((x) => ({ ...carritoNuevo(), ...x, gc: null }))); setActivoId(guardados[0].id); }
+    } catch {}
+  }, [local]);
+  useEffect(() => {
+    if (!local) return;
+    try { localStorage.setItem(`magnolia-carritos-${local}`, JSON.stringify(carritos.map((x) => ({ ...x, gc: null })))); } catch {}
+  }, [carritos, local]);
+
+  const enfocar = () => setTimeout(() => entrada.current?.focus(), 30);
+  const nuevaVenta = () => {
+    const n = carritoNuevo();
+    setCarritos((cs) => [...cs, n]); setActivoId(n.id);
+    setUltima(null); setAviso(null); setConfirmarAnular(false); enfocar();
+  };
+  const irA = (id: string) => { setActivoId(id); setUltima(null); setAviso(null); setConfirmarAnular(false); enfocar(); };
+  /** Saca la venta de las abiertas (si es la única, queda una vacía). */
+  const cerrarCarrito = (id: string) => {
+    setCarritos((cs) => {
+      const quedan = cs.filter((x) => x.id !== id);
+      const lista = quedan.length ? quedan : [carritoNuevo()];
+      setActivoId(lista[Math.max(0, cs.findIndex((x) => x.id === id) - 1)]?.id ?? lista[0].id);
+      return lista;
+    });
+    setConfirmarAnular(false);
+  };
+  const anularEnCurso = () => {
+    cerrarCarrito(c.id);
+    setAviso({ ok: true, texto: "Venta anulada: no se registró nada." });
+    enfocar();
+  };
   const { imprimir, zona, papel, setPapel } = useImpresion();
   // después de imprimir, el lector de códigos tiene que seguir escribiendo en el buscador
   const volverAlLector = () => setTimeout(() => document.querySelector<HTMLInputElement>("input[inputmode=search]")?.focus(), 300);
@@ -213,9 +272,8 @@ export function Caja() {
       total: v.total, paga_con: v.paga_con, items: v.items.map((i) => ({ nombre: i.nombre, cantidad: i.cantidad, precio_unitario: i.precio_unitario, total: i.total })),
       ...impresa,
     });
-    setItems([]); setPagaCon(""); setMedio("efectivo"); setMedioResto("efectivo");
-    setGc(null); setCodigoGc(""); setModoGc(false); setMontoGc("");
-    entrada.current?.focus();
+    cerrarCarrito(c.id);
+    enfocar();
     subir();
   };
 
@@ -346,6 +404,20 @@ export function Caja() {
       <main className="grid flex-1 gap-4 p-4 lg:grid-cols-[1fr_380px]">
         {/* Izquierda: búsqueda y carrito */}
         <section className="flex min-w-0 flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {carritos.map((x, i) => {
+              const tt = x.modoGc ? (Number(x.montoGc.replace(/\./g, "").replace(",", ".")) || 0) : totales(x.items, x.medio === "giftcard" ? x.gc?.medio_origen ?? "cuotas" : x.medio).total;
+              const activa = x.id === c.id;
+              return (
+                <button key={x.id} onClick={() => irA(x.id)}
+                  className={`rounded-xl border px-3 py-2 text-sm ${activa ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>
+                  <b>Venta {i + 1}</b>{" "}
+                  <span className={activa ? "text-white/80" : "text-suave"}>{x.modoGc ? "🎁 gift card" : vacio(x) ? "vacía" : `${x.items.reduce((s, y) => s + y.cantidad, 0)} u. · ${pesos(tt)}`}</span>
+                </button>
+              );
+            })}
+            <button className="rounded-xl border border-dashed border-marca px-3 py-2 text-sm font-semibold text-marca" onClick={nuevaVenta}>+ Otra venta</button>
+          </div>
           <div className="relative">
             <input
               ref={entrada}
@@ -411,7 +483,15 @@ export function Caja() {
           <div className="flex flex-wrap gap-2">
             <button className="boton-borde" onClick={() => setVarios((v) => !v)}>+ Varios (sin código)</button>
             <button className="boton-borde" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setUltima(null); setAviso(null); }}>🎁 Vender gift card</button>
-            {items.length > 0 && <button className="text-sm text-suave underline" onClick={() => { setItems([]); entrada.current?.focus(); }}>Vaciar</button>}
+            {!vacio(c) && (confirmarAnular ? (
+              <span className="ml-auto flex items-center gap-2 rounded-xl bg-red-50 px-3 py-1.5 text-sm text-red-800">
+                ¿Anular esta venta?
+                <button className="rounded-lg bg-red-700 px-3 py-1.5 font-semibold text-white" onClick={anularEnCurso}>Sí, anular</button>
+                <button className="underline" onClick={() => setConfirmarAnular(false)}>No</button>
+              </span>
+            ) : (
+              <button className="boton-borde ml-auto !border-red-300 !text-red-700" onClick={() => setConfirmarAnular(true)}>✕ Anular venta</button>
+            ))}
           </div>
           {varios && (
             <form className="tarjeta flex flex-wrap items-end gap-3" onSubmit={(e) => {
@@ -465,7 +545,7 @@ export function Caja() {
             ))}
             {!modoGc && (
               <button onClick={() => { setMedio("giftcard"); setAviso(null); }}
-                className={`col-span-2 rounded-xl border px-3 py-3 text-sm font-semibold ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>
+                className={`rounded-xl border px-3 py-3 text-sm font-semibold ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>
                 🎁 Gift card
               </button>
             )}
@@ -552,8 +632,7 @@ export function Caja() {
           <p className="text-xs text-suave">
             {catalogo ? `${catalogo.productos.length} productos en esta compu` : "Sin catálogo"}
             {catalogo?.guardado ? ` · actualizado ${new Date(catalogo.guardado).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}` : ""}
-            {" · "}
-            <button className="underline" onClick={() => { localStorage.removeItem("magnolia-local"); setLocal(null); }}>cambiar local</button>
+
           </p>
         </section>
       </main>
