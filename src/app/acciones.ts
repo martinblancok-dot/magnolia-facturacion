@@ -10,6 +10,7 @@ import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
 import { leerMisComprobantes } from "@/lib/mis-comprobantes";
 import { leerPreciosDeco, type Conflicto } from "@/lib/catalogo";
+import { abrirAdmin, adminDesbloqueado, cerrarAdmin, cifrarPin, pinCorrecto, pinGuardado } from "@/lib/admin";
 import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
 import { clienteUsuario, usuarioActual } from "@/lib/supabase/sesion";
@@ -258,6 +259,7 @@ export interface ResultadoImportacion extends Mensaje {
 
 export async function importarCatalogo(_prev: ResultadoImportacion | null, form: FormData): Promise<ResultadoImportacion> {
   await usuarioActual();
+  if (!(await adminDesbloqueado())) return { ok: false, texto: "Desbloqueá con la clave de administrador para importar." };
   const db = clienteServidor();
   const f = form.get("archivo");
   if (!f || typeof f === "string" || f.size === 0) return { ok: false, texto: "Elegí el Excel de Precios Deco." };
@@ -295,4 +297,86 @@ export async function anularVenta(id: string): Promise<Mensaje> {
   if (error) return { ok: false, texto: error.message };
   revalidatePath("/ventas");
   return data ? { ok: true, texto: "Venta anulada y stock devuelto." } : { ok: false, texto: "Ya estaba anulada." };
+}
+
+// ---------- Clave de administrador ----------
+
+export async function definirPin(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await usuarioActual();
+  const actual = String(form.get("actual") ?? "");
+  const nuevo = String(form.get("nuevo") ?? "");
+  const repetir = String(form.get("repetir") ?? "");
+  const guardado = await pinGuardado();
+  if (guardado && !pinCorrecto(actual, guardado)) return { ok: false, texto: "La clave actual no es correcta." };
+  if (!/^\S{4,}$/.test(nuevo)) return { ok: false, texto: "La clave nueva tiene que tener al menos 4 caracteres, sin espacios." };
+  if (nuevo !== repetir) return { ok: false, texto: "Las dos claves nuevas no coinciden." };
+  const { error } = await clienteServidor().from("ajustes").upsert({ clave: "pin_admin", valor: cifrarPin(nuevo), actualizado_en: new Date().toISOString() });
+  if (error) return { ok: false, texto: error.message };
+  await abrirAdmin();
+  revalidatePath("/configuracion");
+  return { ok: true, texto: guardado ? "Clave cambiada." : "Clave creada. Guardala bien: sin ella no se pueden editar productos." };
+}
+
+export async function desbloquearAdmin(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await usuarioActual();
+  const guardado = await pinGuardado();
+  if (!guardado) return { ok: false, texto: "Todavía no hay clave: creala en Configuración → Clave de administrador." };
+  // pequeña demora para que no se pueda probar claves a lo loco
+  await new Promise((r) => setTimeout(r, 400));
+  if (!pinCorrecto(String(form.get("pin") ?? ""), guardado)) return { ok: false, texto: "Clave incorrecta." };
+  await abrirAdmin();
+  revalidatePath("/productos", "layout");
+  return { ok: true, texto: "Desbloqueado por 30 minutos." };
+}
+
+export async function bloquearAdmin() {
+  await cerrarAdmin();
+  revalidatePath("/productos", "layout");
+}
+
+// ---------- Editar productos ----------
+
+export async function guardarProducto(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await usuarioActual();
+  if (!(await adminDesbloqueado())) return { ok: false, texto: "Se cerró la edición: desbloqueá de nuevo con la clave." };
+  const id = String(form.get("id") ?? "");
+  const num = (k: string) => {
+    const v = String(form.get(k) ?? "").trim();
+    if (!v) return null;
+    const n = Number(v.replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
+  };
+  const datos = {
+    nombre: String(form.get("nombre") ?? "").trim().replace(/\s+/g, " "),
+    sku: String(form.get("sku") ?? "").trim(),
+    barcode: String(form.get("barcode") ?? "").trim(),
+    categoria: String(form.get("categoria") ?? "").trim() || null,
+    proveedor: String(form.get("proveedor") ?? "").trim() || null,
+    precio_lista: num("precio_lista"),
+    precio_efectivo: num("precio_efectivo"),
+    costo: num("costo"),
+    actualizado_en: new Date().toISOString(),
+  };
+  if (!datos.nombre || !datos.sku || !datos.barcode) return { ok: false, texto: "Nombre, SKU y código de barras son obligatorios." };
+  if (!(Number(datos.precio_lista) > 0)) return { ok: false, texto: "El precio de lista tiene que ser mayor a 0." };
+  if (datos.precio_efectivo === null) datos.precio_efectivo = Math.round((Number(datos.precio_lista) * 0.85) / 50) * 50;
+  if (!(Number(datos.precio_efectivo) >= 0) || Number.isNaN(datos.costo)) return { ok: false, texto: "Revisá los precios." };
+  const db = clienteServidor();
+  const { data: otro } = await db.from("productos").select("id, nombre").eq("barcode", datos.barcode).maybeSingle();
+  if (otro && otro.id !== id) return { ok: false, texto: `Ese código de barras ya lo usa "${otro.nombre}".` };
+  const r = id ? await db.from("productos").update(datos).eq("id", id) : await db.from("productos").insert({ ...datos, activo: true });
+  if (r.error) return { ok: false, texto: r.error.message };
+  revalidatePath("/productos", "layout");
+  if (!id) redirect(`/productos?q=${encodeURIComponent(datos.sku)}`);
+  return { ok: true, texto: "Producto guardado. La caja lo toma en la próxima actualización (al abrirla o cada 10 minutos)." };
+}
+
+export async function eliminarProducto(id: string): Promise<Mensaje> {
+  await usuarioActual();
+  if (!(await adminDesbloqueado())) return { ok: false, texto: "Se cerró la edición: desbloqueá de nuevo con la clave." };
+  // No se borra del todo (tiene ventas asociadas): se oculta de la caja y de las listas
+  const { error } = await clienteServidor().from("productos").update({ activo: false, actualizado_en: new Date().toISOString() }).eq("id", id);
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/productos", "layout");
+  redirect("/productos");
 }
