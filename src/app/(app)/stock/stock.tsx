@@ -24,6 +24,7 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
   const [ultimo, setUltimo] = useState<string | null>(null);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [cargaHecha, setCargaHecha] = useState<{ id: string; cantidad: number }[] | null>(null);
   const entrada = useRef<HTMLInputElement>(null);
   const cargado = useRef(false);
 
@@ -124,6 +125,7 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "error");
       setAviso({ ok: true, texto: modo === "transferencia" ? `Listo: pasaron ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${LOCALES.find((l) => l.id === local)?.nombre} a ${otro.nombre}.` : modo === "ingreso" ? `Mercadería cargada: ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${lineas.length} productos.` : `Control aplicado: ${d.cambiados} productos ajustados.` });
+      setCargaHecha(modo === "ingreso" ? lineas.map((l) => ({ id: l.id, cantidad: l.cantidad })) : null);
       setLineas([]); setDesconocidos([]); setNota(""); setCompleto(false);
       traerSistema();
     } catch (e) {
@@ -143,6 +145,7 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold">Stock</h1>
+          <Link href="/etiquetas" className="rounded-full border border-linea bg-white px-3 py-1 text-sm">Etiquetas</Link>
           {duenio && <Link href="/stock/reposicion" className="rounded-full border border-marca px-3 py-1 text-sm text-marca">Reposición y faltantes →</Link>}
         </div>
         <div className="flex gap-2 text-sm">
@@ -184,7 +187,16 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
         )}
       </div>
       {ultimo && <p className="text-sm text-green-800">✓ {ultimo}</p>}
-      {aviso && <p className={`rounded-lg px-3 py-2 text-sm ${aviso.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{aviso.texto}</p>}
+      {aviso && <p className={`rounded-lg px-3 py-2 text-sm ${aviso.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>{aviso.texto}
+        {aviso.ok && cargaHecha && (
+          <button className="ml-2 font-semibold underline" onClick={() => {
+            try {
+              const g = JSON.parse(localStorage.getItem("magnolia-etiquetas") ?? "null") ?? {};
+              localStorage.setItem("magnolia-etiquetas", JSON.stringify({ ...g, lineas: cargaHecha }));
+            } catch {}
+            location.href = "/etiquetas";
+          }}>Imprimir etiquetas de esta carga</button>
+        )}</p>}
 
       <div className="rounded-2xl border border-linea bg-white">
         {lineas.length === 0 ? (
