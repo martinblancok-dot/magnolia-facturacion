@@ -71,6 +71,7 @@ export function Menu({ nombre, duenio, salir }: { nombre: string; duenio: boolea
     { href: "/caja", texto: "Caja" },
     { href: "/ventas", texto: "Ventas" },
     { href: "/giftcards", texto: "Gift cards" },
+    { href: "/reportes", texto: "Reportes" },
     { href: "/productos", texto: "Productos" },
     { href: "/stock", texto: "Stock" },
     { href: "/cobros", texto: "Cobros" },
