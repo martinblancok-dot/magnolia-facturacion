@@ -4,13 +4,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  agregar, armarVenta, armarVentaGiftcard, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
+  agregar, armarVenta, armarVentaCambio, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
 } from "@/lib/caja";
 import { encolar, guardar, guardarVenta, leer, outbox, ventasPendientes, type TurnoLocal } from "@/lib/caja-local";
 import { guardarTurno, subirTodo, turnoDeEstaCompu } from "@/lib/caja-sync";
 import { codigoVenta, type VentaImpresa } from "@/lib/impresion";
 import { useImpresion } from "../impreso";
+import type { DescuentoManual, Promo } from "@/lib/promos";
 
 const pesos = (n: number) =>
   new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
@@ -27,12 +28,15 @@ interface Carrito {
   gc: GiftCard | null; // gift card con la que se paga
   codigoGc: string;
   medioResto: MedioPago;
+  cambio?: CambioEnCurso | null; // cambio o devolución de una venta anterior
+  descuento?: DescuentoManual | null;
 }
 const carritoNuevo = (): Carrito => ({ id: crypto.randomUUID(), items: [], medio: "efectivo", pagaCon: "", modoGc: false, montoGc: "", gc: null, codigoGc: "", medioResto: "efectivo" });
-const vacio = (c: Carrito) => c.items.length === 0 && !c.modoGc && !c.gc;
+const vacio = (c: Carrito) => c.items.length === 0 && !c.modoGc && !c.gc && !c.cambio;
 
 interface Catalogo {
   version: string;
+  promos?: Promo[];
   productos: ProductoCaja[];
   locales: { id: number; nombre: string }[];
   guardado: string;
@@ -69,6 +73,13 @@ export function Caja() {
   const [cobrando, setCobrando] = useState(false);
   const [confirmarAnular, setConfirmarAnular] = useState(false);
   const [renombrando, setRenombrando] = useState<string | null>(null);
+  // Cambio: buscar la venta original y elegir qué devuelve
+  type VentaCambio = { id: string; creada_en: string; medio_pago: string; medio_precio: MedioPago; vence: string; enPlazo: boolean;
+    items: { n: number; producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; devuelto: number; puede: number }[] };
+  const [cb, setCb] = useState<null | { codigo: string; cargando: boolean; error?: string; venta?: VentaCambio; cant: Record<number, number> }>(null);
+  // Descuento manual
+  const [descForm, setDescForm] = useState<null | { tipo: "pct" | "monto"; valor: string; motivo: string; pedido?: string; estado?: string }>(null);
+  const [soyDuenio, setSoyDuenio] = useState(false);
 
   // ---- Ventas abiertas (pestañas). Se guardan en la compu por si se recarga la página.
   const [carritos, setCarritos] = useState<Carrito[]>(() => [carritoNuevo()]);
@@ -81,6 +92,8 @@ export function Caja() {
   const setter = <K extends keyof Carrito>(k: K) => (v: Carrito[K] | ((prev: Carrito[K]) => Carrito[K])) =>
     cambiar((x) => ({ [k]: typeof v === "function" ? (v as (p: Carrito[K]) => Carrito[K])(x[k]) : v }) as Partial<Carrito>);
   const { items, medio, pagaCon, modoGc, montoGc, gc, codigoGc, medioResto } = c;
+  const cambio = c.cambio ?? null;
+  const setCambio = setter("cambio"), setDescuento = setter("descuento");
   const setItems = setter("items"), setMedio = setter("medio"), setPagaCon = setter("pagaCon"), setModoGc = setter("modoGc");
   const setMontoGc = setter("montoGc"), setGc = setter("gc"), setCodigoGc = setter("codigoGc"), setMedioResto = setter("medioResto");
 
@@ -141,7 +154,7 @@ export function Caja() {
         setEstado("conectado");
         return;
       }
-      const c: Catalogo = { version: d.version, productos: d.productos, locales: d.locales, guardado: new Date().toISOString() };
+      const c: Catalogo = { version: d.version, productos: d.productos, promos: d.promos ?? [], locales: d.locales, guardado: new Date().toISOString() };
       await guardar("catalogo", c);
       setCatalogo(c);
       setEstado("conectado");
@@ -185,6 +198,17 @@ export function Caja() {
       clearInterval(catalogoCada);
     };
   }, [actualizarCatalogo, subir]);
+
+  // ---- Quién usa la caja (los dueños aplican descuentos sin pedir autorización)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    try { setSoyDuenio(localStorage.getItem("magnolia-rol") === "duenio"); } catch {}
+    fetch("/api/yo", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d) return;
+      setSoyDuenio(d.rol === "duenio");
+      try { localStorage.setItem("magnolia-rol", d.rol); } catch {}
+    }).catch(() => {});
+  }, []);
 
   // ---- Turno de caja: el que quedó abierto en esta compu; si no hay, se elige local al abrir
   useEffect(() => {
@@ -324,14 +348,17 @@ export function Caja() {
     if (textoBuscado.trim() && resultado.resultados.length === 0) setAviso({ ok: false, texto: `No encontré "${textoBuscado.trim()}". Probá con el nombre o cargalo como "Varios".` });
   };
 
-  const conGc = medio === "giftcard";
-  const cgc = conGc && gc ? cobroConGiftcard(items, gc, medioResto) : null;
-  const medioPrecio: MedioPago = conGc ? gc?.medio_origen ?? "cuotas" : medio;
-  const t = totales(items, medioPrecio);
+  // Promos vigentes (vienen con el catálogo) y descuento manual de esta venta
+  const ext: Extras = { promos: catalogo?.promos ?? [], descuento: c.descuento ?? null };
+  const conGc = medio === "giftcard" && !cambio;
+  const cgc = conGc && gc ? cobroConGiftcard(items, gc, medioResto, ext) : null;
+  const rc = cambio ? cobroCambio(items, cambio, medioResto, ext) : null;
+  const medioPrecio: MedioPago = cambio ? cambio.medio_precio : conGc ? gc?.medio_origen ?? "cuotas" : medio;
+  const t = totales(items, medioPrecio, ext);
   const montoNuevaGc = Number(montoGc.replace(/\./g, "").replace(",", ".")) || 0;
   // lo que se cobra en la caja ahora (con la gift card, solo la diferencia)
-  const aCobrar = modoGc ? montoNuevaGc : conGc ? cgc?.falta ?? 0 : t.total;
-  const medioEfectivo = modoGc ? medio === "efectivo" : conGc ? (cgc?.falta ?? 0) > 0 && medioResto === "efectivo" : medio === "efectivo";
+  const aCobrar = modoGc ? montoNuevaGc : rc ? rc.falta : conGc ? cgc?.falta ?? 0 : t.total;
+  const medioEfectivo = modoGc ? medio === "efectivo" : rc ? rc.falta > 0 && medioResto === "efectivo" : conGc ? (cgc?.falta ?? 0) > 0 && medioResto === "efectivo" : medio === "efectivo";
   const pago = Number(pagaCon.replace(/\./g, "").replace(",", ".")) || 0;
   const vuelto = medioEfectivo && pago > 0 ? redondear(pago - aCobrar) : null;
 
@@ -360,7 +387,7 @@ export function Caja() {
   const cobrarConGiftcard = async () => {
     if (!local || !gc || !cgc || items.length === 0) return;
     if (medioEfectivo && pago > 0 && pago < cgc.falta) { setAviso({ ok: false, texto: "El pago es menor a lo que falta." }); return; }
-    const v = { ...armarVentaGiftcard(items, gc, medioResto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID()), turno_id: turno?.id ?? null };
+    const v = { ...armarVentaGiftcard(items, gc, medioResto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
     setCobrando(true);
     try {
       const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
@@ -375,12 +402,104 @@ export function Caja() {
     }
   };
 
+  const buscarVentaCambio = async (codigo: string) => {
+    setCb({ codigo, cargando: true, cant: {} });
+    try {
+      const r = await fetch(`/api/ventas/cambio?codigo=${encodeURIComponent(codigo)}`, { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) { setCb({ codigo, cargando: false, error: d.error ?? "No se pudo buscar la venta.", cant: {} }); return; }
+      setCb({ codigo, cargando: false, venta: d, cant: {} });
+    } catch {
+      setCb({ codigo, cargando: false, error: "Sin internet no se puede buscar la venta.", cant: {} });
+    }
+  };
+  const confirmarDevolucion = () => {
+    if (!cb?.venta) return;
+    const v = cb.venta;
+    const devoluciones = v.items.filter((i) => (cb.cant[i.n] ?? 0) > 0).map((i) => ({
+      producto_id: i.producto_id, barcode: i.barcode, sku: i.sku, nombre: i.nombre, cantidad: cb.cant[i.n], precio: i.precio_unitario,
+    }));
+    if (!devoluciones.length) return;
+    setCambio({ venta_id: v.id, codigo: codigoVenta(v.id), medio_precio: v.medio_precio, devoluciones });
+    setGc(null); setModoGc(false); setMedioResto("efectivo");
+    if (medio === "giftcard") setMedio("efectivo");
+    setCb(null); setAviso(null); enfocar();
+  };
+
+  // Descuento: un dueño lo aplica; un colaborador lo pide y espera la autorización
+  const valorDesc = (f: NonNullable<typeof descForm>) => Number(f.valor.replace(/\./g, "").replace(",", ".")) || 0;
+  const aplicarDescuento = async () => {
+    if (!descForm) return;
+    const valor = valorDesc(descForm);
+    if (!(valor > 0) || (descForm.tipo === "pct" && valor > 100)) { setAviso({ ok: false, texto: "Revisá el descuento." }); return; }
+    const d: DescuentoManual = { tipo: descForm.tipo, valor, motivo: descForm.motivo.trim() || undefined };
+    if (soyDuenio) { setDescuento(d); setDescForm(null); enfocar(); return; }
+    try {
+      const r = await fetch("/api/autorizaciones", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ local_id: local, datos: { ...d, subtotal: t.sinDescuento, productos: items.map((i) => `${i.cantidad} × ${i.nombre}`).slice(0, 20) } }),
+      });
+      const x = await r.json();
+      if (!r.ok) { setAviso({ ok: false, texto: x.error ?? "No se pudo pedir la autorización." }); return; }
+      setDescForm({ ...descForm, pedido: x.id, estado: "pendiente" });
+    } catch {
+      setAviso({ ok: false, texto: "Sin internet no se puede pedir autorización." });
+    }
+  };
+  // Mientras espera la respuesta, consulta cada 3 segundos
+  const carritoDelPedido = useRef<string | null>(null);
+  useEffect(() => {
+    if (!descForm?.pedido || descForm.estado !== "pendiente") return;
+    carritoDelPedido.current = c.id;
+    const pedido = descForm.pedido;
+    const cada = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/autorizaciones?id=${pedido}`, { cache: "no-store" });
+        if (!r.ok) return;
+        const x = await r.json();
+        if (x.estado === "aprobada") {
+          const d: DescuentoManual = { tipo: x.datos.tipo, valor: Number(x.datos.valor), motivo: x.datos.motivo, autorizacion_id: pedido };
+          setCarritos((cs) => cs.map((y) => (y.id === carritoDelPedido.current ? { ...y, descuento: d } : y)));
+          setDescForm(null);
+          setAviso({ ok: true, texto: "✓ Descuento autorizado." });
+        } else if (x.estado === "rechazada") {
+          setDescForm((f) => (f ? { ...f, estado: "rechazada" } : f));
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(cada);
+  }, [descForm?.pedido, descForm?.estado, c.id]);
+
+  // Cambio: se sube en el momento (el servidor controla que no se devuelva dos veces)
+  const cobrarCambio = async () => {
+    if (!local || !cambio || !rc) return;
+    if (medioEfectivo && pago > 0 && pago < rc.falta) { setAviso({ ok: false, texto: "El pago es menor a la diferencia." }); return; }
+    const idGc = crypto.randomUUID();
+    const v = { ...armarVentaCambio(items, cambio, medioResto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), idGc, new Date(), ext), turno_id: turno?.id ?? null };
+    setCobrando(true);
+    try {
+      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
+      if (r.status === 401) { setEstado("sin-sesion"); setAviso({ ok: false, texto: "Iniciá sesión de nuevo para hacer el cambio." }); return; }
+      const d = (await r.json()) as { recibidas: string[]; rechazadas: { motivo: string }[] };
+      if (!d.recibidas?.includes(v.id)) { setAviso({ ok: false, texto: `No se pudo registrar el cambio: ${d.rechazadas?.[0]?.motivo ?? "error del servidor"}` }); return; }
+      terminarVenta(v, {
+        cambio: { codigo: cambio.codigo, credito: rc.credito },
+        giftcard_nueva: v.giftcard_nueva ? { codigo: codigoGiftcard(idGc), monto: v.giftcard_nueva.monto } : null,
+      });
+    } catch {
+      setAviso({ ok: false, texto: "Sin internet no se pueden hacer cambios. Probá de nuevo cuando vuelva la conexión." });
+    } finally {
+      setCobrando(false);
+    }
+  };
+
   const cobrar = async () => {
     if (modoGc) return venderGiftcard();
+    if (cambio) return cobrarCambio();
     if (conGc) return cobrarConGiftcard();
     if (!local || items.length === 0) return;
     if (medio === "efectivo" && pago > 0 && pago < t.total) { setAviso({ ok: false, texto: "El pago es menor al total." }); return; }
-    const v = { ...armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID()), turno_id: turno?.id ?? null };
+    const v = { ...armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
     try {
       await guardarVenta(v);
     } catch {
@@ -453,8 +572,8 @@ export function Caja() {
     const arriba = (m: number) => Math.ceil(aCobrar / m) * m;
     return [...new Set([aCobrar, arriba(1000), arriba(5000), arriba(10000), arriba(20000)])].filter((x) => x >= aCobrar).slice(0, 4);
   })();
-  const hayCarrito = items.length > 0 || modoGc;
-  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0 : items.length > 0 && (!conGc || !!gc));
+  const hayCarrito = items.length > 0 || modoGc || !!cambio;
+  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0 : cambio ? cambio.devoluciones.length > 0 : items.length > 0 && (!conGc || !!gc));
   const unidades = (x: Carrito) => x.items.reduce((s2, y) => s2 + y.cantidad, 0);
   const totalDe = (x: Carrito) => x.modoGc ? (Number(x.montoGc.replace(/\./g, "").replace(",", ".")) || 0)
     : totales(x.items, x.medio === "giftcard" ? x.gc?.medio_origen ?? "cuotas" : x.medio).total;
@@ -578,14 +697,56 @@ export function Caja() {
           )}
 
           <div className="flex min-h-56 flex-col overflow-hidden rounded-2xl border border-linea bg-white lg:min-h-0 lg:flex-1">
-            {modoGc ? (
+            {cb ? (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex items-center justify-between border-b border-linea px-4 py-3">
+                  <p className="font-semibold">↺ Cambio o devolución</p>
+                  <button className="text-sm text-suave underline" onClick={() => { setCb(null); enfocar(); }}>Cancelar</button>
+                </div>
+                <form className="flex gap-2 px-4 py-3" onSubmit={(e) => { e.preventDefault(); const k = String(new FormData(e.currentTarget).get("codigo") ?? "").trim(); if (k) buscarVentaCambio(k); }}>
+                  <input name="codigo" defaultValue={cb.codigo} autoFocus autoComplete="off" className="campo uppercase" placeholder="Escaneá el ticket o escribí el código de la venta" />
+                  <button className="boton" disabled={cb.cargando}>{cb.cargando ? "…" : "Buscar"}</button>
+                </form>
+                {cb.error && <p className="mx-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{cb.error}</p>}
+                {cb.venta && (
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <p className={`mx-4 rounded-lg px-3 py-2 text-sm ${cb.venta.enPlazo ? "bg-green-50 text-green-900" : "bg-amber-50 text-amber-900"}`}>
+                      Venta {codigoVenta(cb.venta.id)} del {new Date(cb.venta.creada_en).toLocaleDateString("es-AR")} · pagada con {nombreMedio(cb.venta.medio_pago).toLowerCase()} ·{" "}
+                      {cb.venta.enPlazo ? `dentro del plazo (vence ${new Date(cb.venta.vence).toLocaleDateString("es-AR")})` : `⚠ plazo de cambio vencido el ${new Date(cb.venta.vence).toLocaleDateString("es-AR")}`}
+                    </p>
+                    <p className="px-4 pt-3 text-xs font-semibold tracking-wide text-suave uppercase">¿Qué devuelve?</p>
+                    <ul className="flex-1 divide-y divide-linea overflow-auto">
+                      {cb.venta.items.map((i) => {
+                        const n = cb.cant[i.n] ?? 0;
+                        const poner = (x: number) => setCb((y) => (y ? { ...y, cant: { ...y.cant, [i.n]: Math.max(0, Math.min(x, i.puede)) } } : y));
+                        return (
+                          <li key={i.n} className={`flex items-center gap-3 px-4 py-2.5 ${i.puede === 0 ? "opacity-50" : ""}`}>
+                            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{i.nombre}</span>
+                              <span className="text-xs text-suave">{i.sku ?? "Varios"} · {pesos(i.precio_unitario)} c/u · compró {i.cantidad}{i.devuelto ? ` · ya devolvió ${i.devuelto}` : ""}</span></span>
+                            <span className="flex items-center gap-1">
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-linea" onClick={() => poner(n - 1)} disabled={i.puede === 0}>−</button>
+                              <span className="w-7 text-center font-semibold tabular-nums">{n}</span>
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg border border-linea" onClick={() => poner(n + 1)} disabled={i.puede === 0}>+</button>
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <div className="flex items-center justify-between gap-3 border-t border-linea px-4 py-3">
+                      <span className="text-sm">Crédito: <b>{pesos(cb.venta.items.reduce((s2, i) => s2 + (cb.cant[i.n] ?? 0) * i.precio_unitario, 0))}</b></span>
+                      <button className="boton" onClick={confirmarDevolucion} disabled={!Object.values(cb.cant).some((x) => x > 0)}>Confirmar devolución</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : modoGc ? (
               <div className="m-auto max-w-sm p-8 text-center">
                 <p className="text-5xl">🎁</p>
                 <p className="mt-3 text-lg font-semibold">Venta de gift card</p>
                 <p className="mt-1 text-sm text-suave">Poné el valor a la derecha, elegí cómo paga y cobrá. Después imprimís la tarjeta con su código.</p>
                 <button className="mt-4 text-sm text-suave underline" onClick={() => { setModoGc(false); setMontoGc(""); enfocar(); }}>Volver a vender productos</button>
               </div>
-            ) : items.length === 0 ? (
+            ) : items.length === 0 && !cambio ? (
               <div className="m-auto max-w-sm p-8 text-center text-suave">
                 <svg viewBox="0 0 24 24" className="mx-auto h-12 w-12 text-linea" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"><path d="M4 6v12M7 6v12M10 6v12M14 6v12M17 6v12M20 6v12" /></svg>
                 <p className="mt-3 font-medium text-tinta">Escaneá un producto para empezar</p>
@@ -593,10 +754,24 @@ export function Caja() {
               </div>
             ) : (
               <>
+                {cambio && (
+                  <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+                    <span>↺ Cambio de la venta <b>{cambio.codigo}</b> · lo nuevo va a precio {nombreMedio(cambio.medio_precio).toLowerCase()}</span>
+                    <button className="ml-auto underline" onClick={() => setCambio(null)}>Quitar cambio</button>
+                  </div>
+                )}
                 <div className="hidden grid-cols-[minmax(0,1fr)_120px_110px_36px] gap-3 border-b border-linea px-4 py-2 text-xs font-semibold tracking-wide text-suave uppercase sm:grid">
                   <span>Producto</span><span className="text-center">Cantidad</span><span className="text-right">Subtotal</span><span />
                 </div>
                 <ul className="flex-1 divide-y divide-linea overflow-auto">
+                  {cambio?.devoluciones.map((d, i) => (
+                    <li key={`dev-${i}`} className="flex items-center gap-3 bg-red-50/40 px-4 py-2.5 text-red-900">
+                      <span className="min-w-0 flex-1"><span className="block truncate font-medium">↺ Devuelve: {d.nombre}</span>
+                        <span className="text-xs">{d.cantidad} × {pesos(d.precio)}</span></span>
+                      <span className="font-semibold tabular-nums">−{pesos(d.precio * d.cantidad)}</span>
+                    </li>
+                  ))}
+                  {cambio && items.length === 0 && <li className="px-4 py-4 text-sm text-suave">Escaneá lo que se lleva en cambio. Si no se lleva nada, cobrá así y el saldo a favor queda en una gift card.</li>}
                   {items.map((it, i) => (
                     <li key={`${it.producto_id ?? "v"}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_120px_110px_36px]">
                       <span className="min-w-0 basis-full sm:basis-auto">
@@ -615,6 +790,13 @@ export function Caja() {
                         onClick={() => setItems((x) => x.filter((_, j) => j !== i))}>×</button>
                     </li>
                   ))}
+                  {t.lineas.map((l) => (
+                    <li key={l.nombre} className="flex items-center gap-3 px-4 py-2.5 text-green-800">
+                      <span className="min-w-0 flex-1 truncate font-medium">{l.manual ? "✂ " : "★ "}{l.nombre}</span>
+                      <span className="font-semibold tabular-nums">−{pesos(l.monto)}</span>
+                      {l.manual ? <button aria-label="Quitar descuento" className="rounded-lg px-2 py-1 text-xl text-suave hover:bg-red-50 hover:text-red-700" onClick={() => setDescuento(null)}>×</button> : <span className="w-9" />}
+                    </li>
+                  ))}
                 </ul>
               </>
             )}
@@ -622,7 +804,9 @@ export function Caja() {
 
           <div className="flex shrink-0 flex-wrap items-center gap-2">
             <button className="boton-borde !border-linea !text-tinta" onClick={() => setVarios((v) => !v)}>+ Varios (sin código)</button>
-            {!modoGc && <button className="boton-borde !border-linea !text-tinta" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setAviso(null); }}>🎁 Vender gift card</button>}
+            {!modoGc && !cambio && <button className="boton-borde !border-linea !text-tinta" onClick={() => { setModoGc(true); setItems([]); setGc(null); if (medio === "giftcard") setMedio("efectivo"); setAviso(null); }}>🎁 Vender gift card</button>}
+            {!modoGc && !cambio && !conGc && <button className="boton-borde !border-linea !text-tinta" onClick={() => { setCb({ codigo: "", cargando: false, cant: {} }); setAviso(null); }}>↺ Cambio</button>}
+            {!modoGc && items.length > 0 && !c.descuento && <button className="boton-borde !border-linea !text-tinta" onClick={() => setDescForm({ tipo: "pct", valor: "", motivo: "" })}>✂ Descuento</button>}
             {!vacio(c) && (confirmarAnular ? (
               <span className="ml-auto flex items-center gap-2 rounded-xl bg-red-50 px-3 py-1.5 text-sm text-red-800">
                 ¿Anular esta venta?
@@ -633,6 +817,32 @@ export function Caja() {
               <button className="ml-auto rounded-lg px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50" onClick={() => setConfirmarAnular(true)}>✕ Anular venta</button>
             ))}
           </div>
+          {descForm && (
+            <div className="tarjeta flex flex-wrap items-end gap-3 !p-4">
+              {descForm.pedido ? (
+                <p className="flex-1 text-sm">
+                  {descForm.estado === "rechazada"
+                    ? <span className="text-red-700">✗ Martín o Sofi rechazaron el descuento.</span>
+                    : <>⏳ Esperando que Martín o Sofi autoricen el descuento de <b>{descForm.tipo === "pct" ? `${descForm.valor}%` : pesos(valorDesc(descForm))}</b> desde su usuario…</>}
+                </p>
+              ) : (
+                <>
+                  <label><span className="etiqueta">Descuento</span>
+                    <span className="flex">
+                      <select value={descForm.tipo} onChange={(e) => setDescForm({ ...descForm, tipo: e.target.value as "pct" | "monto" })} className="rounded-l-lg border border-linea bg-white px-2">
+                        <option value="pct">%</option><option value="monto">$</option>
+                      </select>
+                      <input value={descForm.valor} onChange={(e) => setDescForm({ ...descForm, valor: e.target.value })} className="w-24 rounded-r-lg border border-l-0 border-linea px-2 py-2" inputMode="decimal" autoFocus />
+                    </span>
+                  </label>
+                  <label className="min-w-40 flex-1"><span className="etiqueta">Motivo</span>
+                    <input value={descForm.motivo} onChange={(e) => setDescForm({ ...descForm, motivo: e.target.value })} className="campo" placeholder="Ej: producto con detalle, cliente frecuente" /></label>
+                  <button className="boton" onClick={aplicarDescuento}>{soyDuenio ? "Aplicar" : "Pedir autorización"}</button>
+                </>
+              )}
+              <button type="button" className="pb-2 text-sm text-suave underline" onClick={() => setDescForm(null)}>{descForm.pedido ? "Cerrar" : "Cancelar"}</button>
+            </div>
+          )}
           {varios && (
             <form className="tarjeta flex flex-wrap items-end gap-3 !p-4" onSubmit={(e) => {
               e.preventDefault();
@@ -660,7 +870,7 @@ export function Caja() {
             {/* Venta recién cobrada mientras ya se atiende a otro cliente: se puede imprimir igual */}
             {ultima && hayCarrito && (
               <div className="flex flex-wrap items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm">
-                <span className="font-semibold text-green-900">✓ {ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo}` : `Venta ${codigoVenta(ultima.id)}`}</span>
+                <span className="font-semibold text-green-900">✓ {ultima.cambio ? `Cambio ${ultima.cambio.codigo}` : ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo}` : `Venta ${codigoVenta(ultima.id)}`}</span>
                 <span className="ml-auto flex items-center gap-1.5">
                   {ultima.giftcard_nueva
                     ? <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>Imprimir gift card</button>
@@ -688,8 +898,31 @@ export function Caja() {
               </div>
             )}
 
+            {cambio && rc && (
+              <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="flex justify-between"><span>Crédito por lo devuelto</span><b className="tabular-nums">{pesos(rc.credito)}</b></p>
+                <p className="flex justify-between"><span>Lo nuevo (precio {nombreMedio(cambio.medio_precio).toLowerCase()})</span><b className="tabular-nums">{pesos(rc.precioGc)}</b></p>
+                {rc.falta > 0 ? (
+                  <>
+                    <p className="pt-1 font-semibold">Falta pagar. ¿Con qué paga la diferencia?</p>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {MEDIOS_CAJA.map((m) => (
+                        <button key={m.id} onClick={() => setMedioResto(m.id)}
+                          className={`rounded-lg border px-2 py-1.5 text-xs font-semibold ${medioResto === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{m.id === "cuotas" ? "Crédito cuotas" : m.nombre}</button>
+                      ))}
+                    </div>
+                    <p className="flex justify-between text-base"><span>Diferencia en {nombreMedio(medioResto).toLowerCase()}</span><b className="tabular-nums">{pesos(rc.falta)}</b></p>
+                  </>
+                ) : rc.aFavor > 0 ? (
+                  <p className="flex justify-between text-base text-green-800"><span>Saldo a favor → gift card</span><b className="tabular-nums">{pesos(rc.aFavor)}</b></p>
+                ) : (
+                  <p className="font-semibold text-green-800">Cambio justo: no paga nada.</p>
+                )}
+              </div>
+            )}
+
             {/* Medios de pago: cada botón muestra cuánto queda con ese medio */}
-            <div>
+            {!cambio && <div>
               <div className="grid grid-cols-3 gap-1.5">
                 {MEDIOS_CAJA.map((m) => {
                   const elegido = medio === m.id;
@@ -711,7 +944,7 @@ export function Caja() {
                   </button>
                 )}
               </div>
-            </div>
+            </div>}
 
             {conGc && (
               <div className="space-y-3 rounded-xl bg-marca-claro p-3">
@@ -776,11 +1009,13 @@ export function Caja() {
               <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4">
                 <p className="flex items-center gap-2 font-semibold text-green-900">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-700 text-sm text-white">✓</span>
-                  {ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo} vendida` : `Venta ${codigoVenta(ultima.id)} cobrada`}
+                  {ultima.cambio ? `Cambio de la venta ${ultima.cambio.codigo} registrado` : ultima.giftcard_nueva ? `Gift card ${ultima.giftcard_nueva.codigo} vendida` : `Venta ${codigoVenta(ultima.id)} cobrada`}
                   <button aria-label="Cerrar" className="ml-auto text-xl leading-none text-green-900/60 hover:text-green-900" onClick={() => setUltima(null)}>×</button>
                 </p>
                 <p className="text-sm text-green-900">
-                  {ultima.giftcard
+                  {ultima.cambio
+                    ? <>{ultima.total > 0 ? <>Pagó la diferencia: {pesos(ultima.total)} en {ultima.medio}.</> : ultima.giftcard_nueva ? <>Saldo a favor en la gift card <b>{ultima.giftcard_nueva.codigo}</b>: <b>{pesos(ultima.giftcard_nueva.monto)}</b>. Imprimila y entregásela.</> : "Cambio justo, sin diferencia."}</>
+                    : ultima.giftcard
                     ? <>{pesos(ultima.giftcard.usado)} con gift card{ultima.total > 0 ? <> + {pesos(ultima.total)} en {ultima.medio}</> : null}. Saldo que le queda: <b>{pesos(ultima.giftcard.saldo ?? 0)}</b></>
                     : <>{pesos(ultima.total)} en {ultima.medio}</>}
                 </p>
@@ -807,9 +1042,9 @@ export function Caja() {
           <div className="sticky bottom-0 rounded-b-2xl border-t border-linea bg-white p-3 md:p-4">
             <button className="flex w-full items-center justify-between rounded-2xl bg-marca px-5 py-3 text-white shadow-sm transition hover:opacity-95 disabled:opacity-40" onClick={cobrar} disabled={!listoParaCobrar}>
               <span className="text-lg font-semibold">
-                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : "Cobrar"}
+                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : rc ? (rc.falta > 0 ? "Cobrar diferencia" : rc.aFavor > 0 ? "Confirmar y dar gift card" : "Confirmar cambio") : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : "Cobrar"}
               </span>
-              <span className="text-2xl font-semibold tabular-nums">{!hayCarrito ? "" : modoGc || !conGc ? pesos(aCobrar) : cgc ? pesos(cgc.falta > 0 ? cgc.falta : cgc.usa) : ""}</span>
+              <span className="text-2xl font-semibold tabular-nums">{!hayCarrito ? "" : rc ? pesos(rc.falta > 0 ? rc.falta : rc.aFavor) : modoGc || !conGc ? pesos(aCobrar) : cgc ? pesos(cgc.falta > 0 ? cgc.falta : cgc.usa) : ""}</span>
             </button>
           </div>
         </section>

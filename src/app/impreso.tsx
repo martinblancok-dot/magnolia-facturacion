@@ -52,7 +52,14 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
             </div>
           ))}
           <hr />
-          {venta.giftcard ? (
+          {venta.cambio ? (
+            <>
+              <p className="t-centro t-negrita">CAMBIO de la venta {venta.cambio.codigo}</p>
+              <p className="fila"><span>Crédito por lo devuelto</span><span>{pesos(venta.cambio.credito)}</span></p>
+              {venta.total > 0 && <p className="fila t-grande"><span>Pagó diferencia ({venta.medio})</span><span>{pesos(venta.total)}</span></p>}
+              {venta.giftcard_nueva && <p className="fila t-negrita"><span>Saldo a favor: gift card {venta.giftcard_nueva.codigo}</span><span>{pesos(venta.giftcard_nueva.monto)}</span></p>}
+            </>
+          ) : venta.giftcard ? (
             <>
               <p className="fila t-grande"><span>TOTAL</span><span>{pesos(venta.total + venta.giftcard.usado)}</span></p>
               <p className="fila"><span>Gift card {venta.giftcard.codigo}</span><span>−{pesos(venta.giftcard.usado)}</span></p>

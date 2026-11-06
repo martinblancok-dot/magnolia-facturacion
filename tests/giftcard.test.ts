@@ -43,8 +43,8 @@ describe("gift card", () => {
     expect(validarVenta(v2)).toBeNull();
   });
 
-  it("no acepta montos negativos sin gift card", () => {
-    const v = armarVentaGiftcard(items, { id: GC, codigo: "x", saldo: 20000, medio_origen: "cuotas" }, "efectivo", 1, "t", null, ID);
-    expect(validarVenta({ ...v, giftcard_monto: 0, giftcard_id: null, total: v.total + 20000 })).not.toBeNull();
+  it("la venta de gift card no lleva productos", () => {
+    const v = armarVentaNuevaGiftcard(5000, "efectivo", 1, "t", null, ID, GC);
+    expect(validarVenta({ ...v, items: [...v.items, { ...v.items[0], producto_id: "11111111-1111-1111-1111-111111111111" }], total: 10000 })).not.toBeNull();
   });
 });

@@ -554,3 +554,47 @@ export async function borrarPruebas(_prev: Mensaje | null, form: FormData): Prom
   ].filter(Boolean);
   return { ok: true, texto: `Listo: se borraron ${partes.join("; ")}.` };
 }
+
+// ---------- Autorizaciones de descuentos (solo dueños) ----------
+
+export async function resolverAutorizacion(id: string, aprobar: boolean): Promise<Mensaje> {
+  const u = await soloDuenio();
+  const { data, error } = await clienteServidor().from("autorizaciones")
+    .update({ estado: aprobar ? "aprobada" : "rechazada", resuelta_por: u.id, resuelta_en: new Date().toISOString() })
+    .eq("id", id).eq("estado", "pendiente").select("id");
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/", "layout");
+  if (!data?.length) return { ok: false, texto: "Ese pedido ya estaba resuelto." };
+  return { ok: true, texto: aprobar ? "Aprobado: en la caja se aplica solo." : "Rechazado." };
+}
+
+// ---------- Promociones (solo dueños) ----------
+
+export async function crearPromo(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await soloDuenio();
+  const txt = (k: string) => String(form.get(k) ?? "").trim();
+  const tipo = txt("tipo"), alcance = txt("alcance") || "todo";
+  const pct = Number(txt("pct").replace(",", ".")) || 0, n = Number(txt("n")) || 2, m = Number(txt("m")) || 1;
+  if (!txt("nombre")) return { ok: false, texto: "Poné un nombre (por ejemplo: 2da unidad al 50%)." };
+  if (!["segunda", "nxm", "porcentaje"].includes(tipo)) return { ok: false, texto: "Elegí el tipo de promo." };
+  if (tipo !== "nxm" && !(pct > 0 && pct <= 100)) return { ok: false, texto: "El porcentaje tiene que estar entre 1 y 100." };
+  if (tipo === "nxm" && !(n > m && m >= 1)) return { ok: false, texto: "En NxM, lo que se lleva tiene que ser más que lo que paga (por ejemplo 3x2)." };
+  const valores = txt("valores").split(",").map((v) => v.trim()).filter(Boolean);
+  if (alcance !== "todo" && !valores.length) return { ok: false, texto: "Escribí a qué categorías, proveedores o SKU se aplica." };
+  const { error } = await clienteServidor().from("promos").insert({
+    nombre: txt("nombre"), tipo, pct, n, m, alcance, valores: alcance === "todo" ? [] : valores,
+    mismo_producto: form.get("mismo_producto") === "on", desde: txt("desde") || null, hasta: txt("hasta") || null,
+  });
+  if (error) return { ok: false, texto: /promos/.test(error.message) ? "Falta correr la migración 0016_cambios_promos.sql en Supabase." : error.message };
+  revalidatePath("/promos");
+  return { ok: true, texto: "Promo creada. Las cajas la toman en la próxima actualización (al abrir o cada 10 minutos)." };
+}
+
+export async function cambiarPromo(id: string, accion: "activar" | "pausar" | "eliminar"): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  const { error } = accion === "eliminar" ? await db.from("promos").delete().eq("id", id) : await db.from("promos").update({ activa: accion === "activar" }).eq("id", id);
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/promos");
+  return { ok: true, texto: accion === "eliminar" ? "Promo eliminada." : accion === "activar" ? "Promo activada." : "Promo pausada." };
+}

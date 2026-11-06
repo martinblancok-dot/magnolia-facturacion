@@ -25,8 +25,10 @@ export interface VentaImpresa {
   items: { nombre: string; cantidad: number; precio_unitario: number; total: number }[];
   /** Se pagó (en parte o todo) con una gift card. */
   giftcard?: { codigo: string; usado: number; saldo: number | null } | null;
-  /** En esta venta se vendió una gift card. */
+  /** En esta venta se vendió una gift card (o quedó saldo a favor de un cambio). */
   giftcard_nueva?: { codigo: string; monto: number } | null;
+  /** Cambio de una venta anterior. */
+  cambio?: { codigo: string; credito: number } | null;
 }
 
 export type TipoImpreso = "recibo" | "cambio" | "giftcard";

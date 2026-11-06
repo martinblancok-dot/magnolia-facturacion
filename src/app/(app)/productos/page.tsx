@@ -31,6 +31,7 @@ export default async function Productos({ searchParams }: { searchParams: Promis
         </div>
         {admin && (
           <div className="flex items-center gap-3">
+            <Link href="/promos" className="boton-borde">Promociones</Link>
             <Link href="/productos/nuevo" className="boton">+ Nuevo producto</Link>
           </div>
         )}
