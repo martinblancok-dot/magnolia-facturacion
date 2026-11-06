@@ -80,3 +80,28 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
 }
 
 export type Cierre = NonNullable<Awaited<ReturnType<typeof calcularCierre>>>;
+
+/**
+ * Transferencias "para revisar" que coinciden con una venta de la caja (mismo importe ±$1, de 60 min antes
+ * a 90 min después de cobrar) pasan solas a "Por facturar". Cruza con los cobros de las dos cuentas a la vez,
+ * así una venta no confirma dos transferencias. Devuelve cuántas confirmó.
+ */
+export async function confirmarTransferenciasConCaja(db: SupabaseClient, desdeISO: string): Promise<number> {
+  const hasta = new Date().toISOString();
+  const [{ data: cobros, error: e1 }, { data: ventas, error: e2 }] = await Promise.all([
+    db.from("cobros").select("id, fecha_hora, importe, origen, estado").gte("fecha_hora", minutos(desdeISO, -MINUTOS_DESPUES)).lte("fecha_hora", hasta).limit(5000),
+    db.from("ventas").select("*").eq("anulada", false).neq("medio_pago", "efectivo")
+      .gte("creada_en", minutos(desdeISO, -MINUTOS_DESPUES)).lte("creada_en", hasta).limit(5000),
+  ]);
+  if (e1 || e2 || !cobros?.length || !ventas?.length) return 0;
+  if (!cobros.some((c) => c.estado === "revisar")) return 0;
+  const cruce = cruzarPagos(
+    (ventas as VentaTurno[]).map((v) => ({ ...v, total: Number(v.total) })),
+    (cobros as CobroMP[]).map((c) => ({ ...c, importe: Number(c.importe) })),
+  );
+  const revisar = new Set(cobros.filter((c) => c.estado === "revisar").map((c) => c.id));
+  const ids = cruce.encontrados.map((e) => e.cobroId).filter((id) => revisar.has(id));
+  if (!ids.length) return 0;
+  const { data } = await db.from("cobros").update({ estado: "a_facturar", mensaje: null }).in("id", ids).eq("estado", "revisar").select("id");
+  return data?.length ?? 0;
+}

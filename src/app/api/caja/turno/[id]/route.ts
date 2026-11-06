@@ -4,7 +4,7 @@ import { avisarCierre } from "@/lib/supabase/aviso-cierre";
 import { totalBilletes } from "@/lib/cierre";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
-import { calcularCierre } from "@/lib/supabase/turnos";
+import { calcularCierre, confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 
 export const maxDuration = 60;
 
@@ -47,6 +47,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     resumen: { ...c.resumen, alertas: c.alertas, top: c.top }, notas: String(b.notas ?? "").slice(0, 500) || null,
   }).eq("id", id).is("cerrada_en", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Al cerrar: las transferencias de este turno que coinciden con ventas pasan solas a "Por facturar"
+  try { await confirmarTransferenciasConCaja(db, c.turno.abierta_en); } catch {}
   const aviso = await avisarCierre(db, id);
   return NextResponse.json({ ok: true, contado, esperado: c.resumen.efectivoEsperado, aviso });
 }

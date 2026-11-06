@@ -15,6 +15,7 @@ import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
 import { numeroWhatsapp } from "@/lib/resumen-cierre";
 import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
+import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -680,4 +681,12 @@ export async function cambiarDestinatarioGc(id: string, destinatario: string): P
   revalidatePath(`/giftcards/${id}`);
   revalidatePath("/giftcards");
   return { ok: true, texto: valor ? "Guardado." : "Nombre borrado." };
+}
+
+/** Cruza ya las transferencias "para revisar" con las ventas de la caja de los últimos días. */
+export async function cruzarTransferenciasConCaja(): Promise<Mensaje> {
+  await soloDuenio();
+  const n = await confirmarTransferenciasConCaja(clienteServidor(), new Date(Date.now() - 7 * 24 * 3600_000).toISOString());
+  revalidatePath("/cobros");
+  return { ok: true, texto: n ? `${n} transferencia${n === 1 ? "" : "s"} coincidieron con ventas de la caja y pasaron a “Por facturar”.` : "Ninguna transferencia para revisar coincide con una venta de la caja." };
 }

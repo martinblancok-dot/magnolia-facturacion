@@ -7,6 +7,7 @@ import { pedirTicket } from "@/lib/arca/wsaa";
 import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
 import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
+import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisores } from "@/lib/supabase/almacen";
 
 const arca = { pedirTicket, ultimoNumero, solicitarCAE };
@@ -23,10 +24,20 @@ export async function POST(req: Request) {
   const desde = new Date(ahora.getTime() - 3 * 24 * 3600_000).toISOString(); // revisa los últimos 3 días
   const informe: Record<string, unknown> = {};
 
-  for (const e of await traerEmisores(db)) {
-    const r: Record<string, unknown> = {};
+  const emisores = await traerEmisores(db);
+  // 1) Cobros nuevos de las dos cuentas
+  const nuevos: Record<string, number | string> = {};
+  for (const e of emisores) {
+    if (!e.mpToken) continue;
+    try { nuevos[e.nombre] = await guardarCobros(db, e.usuarioId, await traerCobros(e.mpToken, desde, ahora.toISOString())); }
+    catch (err) { nuevos[e.nombre] = (err as Error).message; }
+  }
+  // 2) Transferencias que coinciden con una venta de la caja → son venta (pasan a "Por facturar")
+  try { informe.transferenciasConfirmadasPorCaja = await confirmarTransferenciasConCaja(db, desde); } catch (err) { informe.errorCruceCaja = (err as Error).message; }
+  // 3) Por cada persona: conciliar con facturas hechas a mano y facturar
+  for (const e of emisores) {
+    const r: Record<string, unknown> = { cobrosNuevos: nuevos[e.nombre] };
     try {
-      if (e.mpToken) r.cobrosNuevos = await guardarCobros(db, e.usuarioId, await traerCobros(e.mpToken, desde, ahora.toISOString()));
       r.yaFacturados = await conciliarUsuario(db, e.usuarioId, e.puntoVenta);
       if (e.facturarAutomatico) r.facturas = await facturarPendientes(e, almacen, arca, ahora);
     } catch (err) {

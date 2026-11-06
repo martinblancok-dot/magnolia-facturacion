@@ -1,6 +1,6 @@
 export const maxDuration = 120; // facturar muchos cobros juntos puede tardar
 import Link from "next/link";
-import { facturarAhora, traerCobrosDesde } from "../../acciones";
+import { cruzarTransferenciasConCaja, facturarAhora, traerCobrosDesde } from "../../acciones";
 import { ListaCobros, type FilaCobro } from "./lista";
 import { BotonAccion, Formulario } from "../../componentes";
 import { diaArgentina, restarDias } from "@/lib/fechas";
@@ -9,7 +9,7 @@ import { clienteServidor, posiblesDuplicados } from "@/lib/supabase/almacen";
 import { soloDuenio } from "@/lib/supabase/sesion";
 
 const PESTANAS = [
-  { id: "revisar", texto: "Para revisar", ayuda: "Transferencias y otros cobros: decidí si son ventas." },
+  { id: "revisar", texto: "Para revisar", ayuda: "Transferencias que no coinciden con ninguna venta de la caja: decidí si son ventas. Las que coinciden en importe y horario con una venta pasan solas a “Por facturar”." },
   { id: "a_facturar", texto: "Por facturar", ayuda: "Ventas confirmadas que todavía no tienen factura." },
   { id: "error", texto: "Errores", ayuda: "ARCA rechazó la factura o no respondió." },
   { id: "facturado", texto: "Facturados", ayuda: "Ya tienen factura." },
@@ -101,6 +101,7 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
         </div>
         <div className="rounded-b-2xl border border-t-0 border-linea bg-white">
           <p className="px-4 pt-4 text-sm text-suave md:px-6">{pestana.ayuda}</p>
+          {pestana.id === "revisar" && <div className="px-4 pt-3 md:px-6"><BotonAccion accion={cruzarTransferenciasConCaja} texto="Cruzar ahora con las ventas de la caja" borde /></div>}
           <ListaCobros key={pestana.id} pestana={pestana.id} filas={(filas ?? []) as FilaCobro[]} />
         </div>
         {pestana.id === "error" && (filas ?? []).some((c) => (c as FilaCobro).mensaje?.startsWith("[VERIFICAR")) && (
