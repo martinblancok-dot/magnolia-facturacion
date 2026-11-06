@@ -1,16 +1,17 @@
 "use client";
 // Cargar mercadería y controlar stock con el lector de códigos.
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buscar, type ProductoCaja } from "@/lib/caja";
 import { guardar, leer } from "@/lib/caja-local";
 
-type Modo = "ingreso" | "conteo";
+type Modo = "ingreso" | "conteo" | "transferencia";
 interface Linea { id: string; sku: string; nombre: string; cantidad: number }
 
 const LOCALES = [{ id: 1, nombre: "Magnolia Home" }, { id: 2, nombre: "Magnolia Beauty" }];
 const claveBorrador = (modo: Modo, local: number) => `magnolia-stock-${modo}-${local}`;
 
-export function Stock() {
+export function Stock({ duenio = false }: { duenio?: boolean }) {
   const [catalogo, setCatalogo] = useState<ProductoCaja[] | null>(null);
   const [local, setLocal] = useState<number>(1);
   const [modo, setModo] = useState<Modo>("ingreso");
@@ -32,6 +33,10 @@ export function Stock() {
       const l = Number(localStorage.getItem("magnolia-local"));
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (l === 1 || l === 2) setLocal(l);
+      const q = new URLSearchParams(location.search);
+      if (q.get("modo") === "transferencia") setModo("transferencia");
+      const d = Number(q.get("local"));
+      if (d === 1 || d === 2) setLocal(d);
     } catch {}
     (async () => {
       try { const c = await leer<{ productos: ProductoCaja[] }>("catalogo"); if (c) setCatalogo(c.productos); } catch {}
@@ -112,13 +117,13 @@ export function Stock() {
     setEnviando(true);
     setAviso(null);
     try {
-      const r = await fetch("/api/stock", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ local, tipo: modo, completo, nota, items: lineas.map((l) => ({ producto_id: l.id, cantidad: l.cantidad })) }),
-      });
+      const items = lineas.map((l) => ({ producto_id: l.id, cantidad: l.cantidad }));
+      const r = modo === "transferencia"
+        ? await fetch("/api/stock/transferir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desde: local, hasta: otro.id, nota, items }) })
+        : await fetch("/api/stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local, tipo: modo, completo, nota, items }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "error");
-      setAviso({ ok: true, texto: modo === "ingreso" ? `Mercadería cargada: ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${lineas.length} productos.` : `Control aplicado: ${d.cambiados} productos ajustados.` });
+      setAviso({ ok: true, texto: modo === "transferencia" ? `Listo: pasaron ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${LOCALES.find((l) => l.id === local)?.nombre} a ${otro.nombre}.` : modo === "ingreso" ? `Mercadería cargada: ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${lineas.length} productos.` : `Control aplicado: ${d.cambiados} productos ajustados.` });
       setLineas([]); setDesconocidos([]); setNota(""); setCompleto(false);
       traerSistema();
     } catch (e) {
@@ -129,13 +134,17 @@ export function Stock() {
     }
   };
 
+  const otro = LOCALES.find((l) => l.id !== local)!;
   const unidades = lineas.reduce((s, l) => s + l.cantidad, 0);
   const diferencias = modo === "conteo" && sistema ? lineas.filter((l) => (sistema[l.id] ?? 0) !== l.cantidad).length : 0;
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Stock</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold">Stock</h1>
+          {duenio && <Link href="/stock/reposicion" className="rounded-full border border-marca px-3 py-1 text-sm text-marca">Reposición y faltantes →</Link>}
+        </div>
         <div className="flex gap-2 text-sm">
           {LOCALES.map((l) => (
             <button key={l.id} onClick={() => setLocal(l.id)}
@@ -144,14 +153,16 @@ export function Stock() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:max-w-md">
-        {([["ingreso", "Cargar mercadería"], ["conteo", "Controlar stock"]] as const).map(([id, t]) => (
+      <div className="grid grid-cols-3 gap-2 sm:max-w-xl">
+        {([["ingreso", "Cargar mercadería"], ["conteo", "Controlar stock"], ["transferencia", "Pasar al otro local"]] as const).map(([id, t]) => (
           <button key={id} onClick={() => setModo(id)}
             className={`rounded-xl border px-3 py-3 text-sm font-semibold ${modo === id ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{t}</button>
         ))}
       </div>
       <p className="text-sm text-suave">
-        {modo === "ingreso"
+        {modo === "transferencia"
+          ? `Escaneá lo que sale de ${LOCALES.find((l) => l.id === local)?.nombre} hacia ${otro.nombre}. Al confirmar, se resta en un local y se suma en el otro.`
+          : modo === "ingreso"
           ? "Escaneá cada unidad que llegó (o 6*código para 6 unidades). Al confirmar, se suma al stock del local."
           : "Escaneá todo lo que hay en el estante o sector. Al confirmar, el stock de esos productos queda en lo que contaste."}
       </p>
@@ -190,6 +201,8 @@ export function Stock() {
                     <span className="text-xs text-suave">
                       {l.sku} · en sistema: {sistema ? antes : "…"}
                       {modo === "ingreso" && sistema ? ` → quedará ${antes + l.cantidad}` : ""}
+                      {modo === "transferencia" && sistema ? ` → quedará ${antes - l.cantidad}` : ""}
+                      {modo === "transferencia" && sistema && l.cantidad > antes && <b className="text-red-700"> (hay menos en sistema)</b>}
                       {modo === "conteo" && sistema && dif !== 0 && <b className={dif > 0 ? " text-green-800" : " text-red-700"}> ({dif > 0 ? "+" : ""}{dif})</b>}
                     </span>
                   </span>
@@ -214,7 +227,7 @@ export function Stock() {
       <div className="tarjeta space-y-3">
         <label className="block">
           <span className="etiqueta">Nota (opcional)</span>
-          <input value={nota} onChange={(e) => setNota(e.target.value)} className="campo" placeholder={modo === "ingreso" ? "Ej: remito Infinita 12/11" : "Ej: estante tazas"} />
+          <input value={nota} onChange={(e) => setNota(e.target.value)} className="campo" placeholder={modo === "ingreso" ? "Ej: remito Infinita 12/11" : modo === "transferencia" ? "Ej: lleva Juli el martes" : "Ej: estante tazas"} />
         </label>
         {modo === "conteo" && (
           <label className="flex items-start gap-2 text-sm">
@@ -230,7 +243,7 @@ export function Stock() {
         </p>
         <div className="flex flex-wrap gap-3">
           <button className="boton" disabled={lineas.length === 0 || enviando} onClick={confirmar}>
-            {enviando ? "Guardando…" : modo === "ingreso" ? "Confirmar carga" : completo ? "Aplicar inventario completo" : "Aplicar control"}
+            {enviando ? "Guardando…" : modo === "transferencia" ? `Pasar a ${otro.nombre}` : modo === "ingreso" ? "Confirmar carga" : completo ? "Aplicar inventario completo" : "Aplicar control"}
           </button>
           {lineas.length > 0 && <button className="text-sm text-suave underline" onClick={() => { setLineas([]); setDesconocidos([]); }}>Empezar de nuevo</button>}
         </div>

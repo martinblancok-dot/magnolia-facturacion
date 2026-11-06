@@ -1,7 +1,8 @@
 import { Stock } from "./stock";
-import { usuarioActual } from "@/lib/supabase/sesion";
+import { perfilDe, usuarioActual } from "@/lib/supabase/sesion";
 
 export default async function PaginaStock() {
-  await usuarioActual();
-  return <Stock />;
+  const u = await usuarioActual();
+  const { rol } = await perfilDe(u.id);
+  return <Stock duenio={rol === "duenio"} />;
 }
