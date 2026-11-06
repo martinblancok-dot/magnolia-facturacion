@@ -13,6 +13,8 @@ import { leerPreciosDeco, type Conflicto } from "@/lib/catalogo";
 import { abrirAdmin, adminDesbloqueado, cerrarAdmin, cifrarPin, pinCorrecto, pinGuardado } from "@/lib/admin";
 import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
+import { numeroWhatsapp } from "@/lib/resumen-cierre";
+import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -597,4 +599,43 @@ export async function cambiarPromo(id: string, accion: "activar" | "pausar" | "e
   if (error) return { ok: false, texto: error.message };
   revalidatePath("/promos");
   return { ok: true, texto: accion === "eliminar" ? "Promo eliminada." : accion === "activar" ? "Promo activada." : "Promo pausada." };
+}
+
+// ---------- Resumen del cierre (WhatsApp y mail) ----------
+
+export async function guardarAvisoCierre(cfg: { whatsapp: { nombre: string; numero: string }[]; mails: string[]; mailAuto: boolean; remitente: string }): Promise<Mensaje> {
+  await soloDuenio();
+  const whatsapp = (cfg.whatsapp ?? []).filter((w) => w.numero.trim()).slice(0, 6).map((w) => ({ nombre: String(w.nombre ?? "").slice(0, 40), numero: String(w.numero).slice(0, 30) }));
+  const malo = whatsapp.find((w) => !numeroWhatsapp(w.numero));
+  if (malo) return { ok: false, texto: `El número "${malo.numero}" no parece un celular argentino (código de área + número, ej. 2625 15 123456).` };
+  const mails = (cfg.mails ?? []).map((m) => m.trim().toLowerCase()).filter(Boolean).slice(0, 6);
+  const mailMalo = mails.find((m) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m));
+  if (mailMalo) return { ok: false, texto: `"${mailMalo}" no es un mail válido.` };
+  const remitente = String(cfg.remitente ?? "").trim().slice(0, 120);
+  const valor = JSON.stringify({ whatsapp, mails, mailAuto: !!cfg.mailAuto && mails.length > 0, remitente });
+  const { error } = await clienteServidor().from("ajustes").upsert({ clave: "aviso_cierre", valor, actualizado_en: new Date().toISOString() });
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/configuracion/resumen");
+  return { ok: true, texto: "Guardado." };
+}
+
+export async function guardarClaveResend(clave: string): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  const c = clave.trim();
+  const { error } = c
+    ? await db.from("ajustes").upsert({ clave: "resend_key", valor: cifrar(c), actualizado_en: new Date().toISOString() })
+    : await db.from("ajustes").delete().eq("clave", "resend_key");
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/configuracion/resumen");
+  return { ok: true, texto: c ? "Clave guardada (cifrada)." : "Clave borrada." };
+}
+
+export async function probarMailCierre(): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  const cfg = await leerConfigAviso(db);
+  if (!cfg.mails.length) return { ok: false, texto: "Primero guardá al menos un mail." };
+  const err = await enviarMail(db, cfg.mails, "Prueba · resumen del cierre Magnolia", "*Prueba del sistema Magnolia*\nSi te llegó este mail, el resumen del cierre de caja va a llegar acá.");
+  return err ? { ok: false, texto: err } : { ok: true, texto: `Mail de prueba enviado a ${cfg.mails.join(", ")}.` };
 }

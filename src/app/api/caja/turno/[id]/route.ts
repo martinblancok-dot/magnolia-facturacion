@@ -1,5 +1,6 @@
 // GET: resumen del turno para cerrar (trae cobros nuevos de Mercado Pago). POST: cierra el turno con el arqueo.
 import { NextResponse } from "next/server";
+import { avisarCierre } from "@/lib/supabase/aviso-cierre";
 import { totalBilletes } from "@/lib/cierre";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
@@ -46,5 +47,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     resumen: { ...c.resumen, alertas: c.alertas, top: c.top }, notas: String(b.notas ?? "").slice(0, 500) || null,
   }).eq("id", id).is("cerrada_en", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true, contado, esperado: c.resumen.efectivoEsperado });
+  const aviso = await avisarCierre(db, id);
+  return NextResponse.json({ ok: true, contado, esperado: c.resumen.efectivoEsperado, aviso });
 }

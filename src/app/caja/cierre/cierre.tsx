@@ -7,6 +7,7 @@ import { MEDIOS } from "@/lib/caja";
 import { DENOMINACIONES, totalBilletes } from "@/lib/cierre";
 import { guardarTurno, subirTodo } from "@/lib/caja-sync";
 import type { Cierre } from "@/lib/supabase/turnos";
+import { EnviarResumen } from "@/app/enviar-resumen";
 
 const pesos = (n: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
@@ -16,6 +17,7 @@ export function CierreCaja() {
   const turnoId = useSearchParams().get("turno") ?? "";
   const [fase, setFase] = useState<"subiendo" | "pendiente" | "cargando" | "listo" | "cerrada" | "error">("subiendo");
   const [datos, setDatos] = useState<Cierre | null>(null);
+  const [aviso, setAviso] = useState<{ texto: string; whatsapp: { nombre: string; numero: string }[]; mail: string | null } | null>(null);
   const [error, setError] = useState("");
   const [billetes, setBilletes] = useState<Record<string, string>>({});
   const [monedas, setMonedas] = useState("");
@@ -57,6 +59,7 @@ export function CierreCaja() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "error");
       guardarTurno(null);
+      setAviso(d.aviso ?? null);
       setFase("cerrada");
     } catch (e) { setError((e as Error).message); }
     finally { setEnviando(false); }
@@ -200,6 +203,7 @@ export function CierreCaja() {
         ) : (
           <div className="space-y-3">
             <p className="font-semibold text-green-800">✓ Caja cerrada.</p>
+            {aviso && <EnviarResumen texto={aviso.texto} whatsapp={aviso.whatsapp} mail={aviso.mail} />}
             <div className="flex flex-wrap gap-3">
               <Link href={`/cierres/${turno.id}`} className="boton-borde">Ver reporte</Link>
               <Link href="/caja" className="boton">Abrir caja nueva</Link>

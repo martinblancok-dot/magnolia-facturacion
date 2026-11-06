@@ -6,6 +6,8 @@ import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioConRol } from "@/lib/supabase/sesion";
 import { calcularCierre } from "@/lib/supabase/turnos";
+import { leerConfigAviso, resumenDeCierre } from "@/lib/supabase/aviso-cierre";
+import { EnviarResumen } from "@/app/enviar-resumen";
 
 const ORIGEN: Record<string, string> = { posnet: "Posnet", qr: "QR", transferencia: "Transferencia", otro: "Otro" };
 
@@ -25,6 +27,7 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
   const { data: local } = await db.from("locales").select("nombre").eq("id", c.turno.local_id).maybeSingle();
   const t = c.turno;
   const r = c.resumen;
+  const [res, cfg] = t.cerrada_en ? await Promise.all([resumenDeCierre(db, id), leerConfigAviso(db)]) : [null, null];
   const dia = new Date(Date.parse(t.abierta_en) - 3 * 3600_000).toISOString().slice(0, 10);
   const fila = (a: string, b: string, fuerte = false) => (
     <li key={a} className={`flex justify-between ${fuerte ? "border-t border-linea pt-1 font-semibold" : ""}`}><span>{a}</span><span>{b}</span></li>
@@ -40,6 +43,8 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
         <h1 className="text-2xl font-semibold">Cierre de caja · {local?.nombre}</h1>
         <p className="text-suave">{fechaCorta(dia)} · de {hora(t.abierta_en)} a {t.cerrada_en ? hora(t.cerrada_en) : "(todavía abierta)"}</p>
       </div>
+
+      {res && cfg && <section className="tarjeta print:hidden"><EnviarResumen texto={res.texto} whatsapp={cfg.whatsapp} /></section>}
 
       <section className="tarjeta">
         <h2 className="font-semibold">Ventas</h2>
