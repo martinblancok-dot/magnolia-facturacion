@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { bloquearAdmin } from "../../acciones";
-import { Desbloquear } from "./desbloquear";
 import { ImportarCatalogo } from "./importar";
-import { adminDesbloqueado, pinGuardado } from "@/lib/admin";
+import { adminDesbloqueado } from "@/lib/admin";
 import { pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioActual } from "@/lib/supabase/sesion";
@@ -10,7 +8,7 @@ import { usuarioActual } from "@/lib/supabase/sesion";
 export default async function Productos({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   await usuarioActual();
   const db = clienteServidor();
-  const [admin, hayPin] = await Promise.all([adminDesbloqueado(), pinGuardado()]);
+  const admin = await adminDesbloqueado();
   const q = ((await searchParams).q ?? "").trim();
   const { count } = await db.from("productos").select("id", { count: "exact", head: true }).eq("activo", true);
   let consulta = db.from("productos")
@@ -34,26 +32,11 @@ export default async function Productos({ searchParams }: { searchParams: Promis
         {admin && (
           <div className="flex items-center gap-3">
             <Link href="/productos/nuevo" className="boton">+ Nuevo producto</Link>
-            <form action={bloquearAdmin}><button className="text-sm text-suave underline">Bloquear edición</button></form>
           </div>
         )}
       </div>
 
-      {!admin && (
-        <div className="tarjeta">
-          {hayPin ? (
-            <>
-              <p className="mb-3 text-sm text-suave">Para editar, eliminar, ver costos o importar, ingresá la clave de administrador.</p>
-              <Desbloquear />
-            </>
-          ) : (
-            <p className="text-sm">
-              Para poder editar productos, primero creá una <b>clave de administrador</b> en{" "}
-              <Link href="/configuracion#clave" className="underline">Configuración</Link>.
-            </p>
-          )}
-        </div>
-      )}
+      {!admin && <p className="text-sm text-suave">Editar, eliminar e importar productos lo pueden hacer solo Martín y Sofi.</p>}
 
       <form className="flex gap-2">
         <input name="q" defaultValue={q} placeholder="Buscar por nombre, SKU, código o categoría" className="campo" />

@@ -44,8 +44,11 @@ export async function pinGuardado(): Promise<string | null> {
   return data?.valor ?? null;
 }
 
+/** Editar productos, ver costos e importar: solo los administradores (Martín y Sofi), sin clave. */
 export async function adminDesbloqueado(): Promise<boolean> {
-  return vencimientoValido((await cookies()).get(COOKIE)?.value);
+  const { usuarioDeLaSesion, perfilDe } = await import("./supabase/sesion");
+  const u = await usuarioDeLaSesion();
+  return !!u && (await perfilDe(u.id)).rol === "duenio";
 }
 
 export async function abrirAdmin() {

@@ -1,6 +1,5 @@
 // Revisión antes de arrancar: qué está listo y qué falta para usar el sistema en los locales.
 import Link from "next/link";
-import { pinGuardado } from "@/lib/admin";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { leerEstado } from "@/lib/supabase/planilla";
 import { soloDuenio } from "@/lib/supabase/sesion";
@@ -32,12 +31,11 @@ export default async function Revision() {
     ["0012_planilla.sql", "planilla_cambios", "id"],
     ["0013_terminales.sql", "terminales", "id"],
   ];
-  const [ms, migr, { data: emisores }, { data: secretos }, pin, planilla, { data: perfiles }, { count: conStock }, { data: ultFactura }] = await Promise.all([
+  const [ms, migr, { data: emisores }, { data: secretos }, planilla, { data: perfiles }, { count: conStock }, { data: ultFactura }] = await Promise.all([
     medirBase(db),
     Promise.all(MIGRACIONES.map(async ([archivo, tabla, col]) => ({ archivo, falta: !!(await db.from(tabla).select(col).limit(1)).error }))),
     db.from("emisores").select("usuario_id, nombre, ambiente, facturar_automatico, punto_venta"),
     db.from("secretos").select("usuario_id, mp_token, certificado_real"),
-    pinGuardado(),
     leerEstado(db),
     db.from("perfiles").select("rol, activo"),
     db.from("stock").select("producto_id", { count: "exact", head: true }).gt("cantidad", 0),
@@ -70,7 +68,6 @@ export default async function Revision() {
       titulo: "Facturas automáticas",
       detalle: ultFactura ? `Última factura real emitida: ${new Date(ultFactura.creado_en).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", dateStyle: "short", timeStyle: "short" })}.` : "Todavía no se emitió ninguna factura real.",
     },
-    { ok: !!pin, titulo: "Clave de administrador", detalle: pin ? "Creada: protege la edición de productos." : "Creala en Configuración (protege editar productos y costos)." },
     {
       ok: !!planilla && !planilla.error ? true : "aviso",
       titulo: "Precios Deco conectada",

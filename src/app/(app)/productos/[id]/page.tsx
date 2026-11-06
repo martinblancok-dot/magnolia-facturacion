@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Desbloquear } from "../desbloquear";
 import { EliminarProducto, FormProducto } from "./formulario";
 import { adminDesbloqueado } from "@/lib/admin";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -14,7 +13,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
     return (
       <div className="max-w-xl space-y-4">
         <Link href="/productos" className="text-sm text-suave underline">← Productos</Link>
-        <div className="tarjeta"><p className="mb-3 text-sm">Esta pantalla necesita la clave de administrador.</p><Desbloquear texto="Desbloquear" /></div>
+        <div className="tarjeta"><p className="text-sm">Editar productos lo pueden hacer solo Martín y Sofi, desde su usuario.</p></div>
       </div>
     );
   }

@@ -264,7 +264,7 @@ export interface ResultadoImportacion extends Mensaje {
 
 export async function importarCatalogo(_prev: ResultadoImportacion | null, form: FormData): Promise<ResultadoImportacion> {
   await usuarioActual();
-  if (!(await adminDesbloqueado())) return { ok: false, texto: "Desbloqueá con la clave de administrador para importar." };
+  if (!(await adminDesbloqueado())) return { ok: false, texto: "Importar productos lo pueden hacer solo Martín y Sofi." };
   const db = clienteServidor();
   const f = form.get("archivo");
   if (!f || typeof f === "string" || f.size === 0) return { ok: false, texto: "Elegí el Excel de Precios Deco." };
@@ -366,7 +366,7 @@ export async function bloquearAdmin() {
 
 export async function guardarProducto(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
   const u = await usuarioActual();
-  if (!(await adminDesbloqueado())) return { ok: false, texto: "Se cerró la edición: desbloqueá de nuevo con la clave." };
+  if (!(await adminDesbloqueado())) return { ok: false, texto: "Editar productos lo pueden hacer solo Martín y Sofi." };
   const id = String(form.get("id") ?? "");
   const num = (k: string) => {
     const v = String(form.get(k) ?? "").trim();
@@ -443,7 +443,7 @@ export async function guardarProducto(_prev: Mensaje | null, form: FormData): Pr
 
 export async function eliminarProducto(id: string): Promise<Mensaje> {
   await usuarioActual();
-  if (!(await adminDesbloqueado())) return { ok: false, texto: "Se cerró la edición: desbloqueá de nuevo con la clave." };
+  if (!(await adminDesbloqueado())) return { ok: false, texto: "Editar productos lo pueden hacer solo Martín y Sofi." };
   // No se borra del todo (tiene ventas asociadas): se oculta de la caja y de las listas
   // baja "sistema": aunque siga en la planilla, la sincronización no lo vuelve a activar
   let r = await clienteServidor().from("productos").update({ activo: false, baja: "sistema", actualizado_en: new Date().toISOString() }).eq("id", id);

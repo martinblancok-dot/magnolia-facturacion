@@ -1,5 +1,4 @@
-import { definirPin, guardarConfiguracion, probarARCA } from "../../acciones";
-import { pinGuardado } from "@/lib/admin";
+import { guardarConfiguracion, probarARCA } from "../../acciones";
 import { BotonAccion, Formulario } from "../../componentes";
 import { infoCertificado } from "@/lib/arca/certificados";
 import { fechaCorta } from "@/lib/formato";
@@ -20,7 +19,6 @@ function estadoCert(cifrado: string | null | undefined): string {
 export default async function Configuracion() {
   const u = await soloDuenio();
   const db = clienteServidor();
-  const hayPin = !!(await pinGuardado());
   const [{ data: e }, { data: s }] = await Promise.all([
     db.from("emisores").select("*").eq("usuario_id", u.id).maybeSingle(),
     db.from("secretos").select("*").eq("usuario_id", u.id).maybeSingle(),
@@ -113,18 +111,6 @@ export default async function Configuracion() {
           </label>
         </section>
       </Formulario>
-
-      <section id="clave" className="tarjeta mt-6">
-        <h2 className="font-semibold">Clave de administrador</h2>
-        <p className="ayuda">La piden para editar o eliminar productos, ver costos e importar Precios Deco. Es una sola para todo el negocio: no se la des a los empleados.</p>
-        <Formulario accion={definirPin} boton={hayPin ? "Cambiar clave" : "Crear clave"} className="mt-3 grid gap-3 sm:grid-cols-3">
-          {hayPin && (
-            <label><span className="etiqueta">Clave actual</span><input name="actual" type="password" className="campo" autoComplete="off" required /></label>
-          )}
-          <label><span className="etiqueta">Clave nueva</span><input name="nuevo" type="password" className="campo" autoComplete="new-password" required minLength={4} /></label>
-          <label><span className="etiqueta">Repetir clave nueva</span><input name="repetir" type="password" className="campo" autoComplete="new-password" required /></label>
-        </Formulario>
-      </section>
 
       <section className="tarjeta mt-6">
         <h2 className="font-semibold">Probar conexión con ARCA</h2>
