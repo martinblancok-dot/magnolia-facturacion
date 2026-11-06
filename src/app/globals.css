@@ -63,24 +63,22 @@ body {
 .impreso .fila { display: flex; justify-content: space-between; gap: 8px; }
 .impreso .item { margin-bottom: 2px; }
 .impreso svg { margin: 4px auto; }
+.impreso .firma { margin-top: 10px; }
+.impreso .firma-linea { margin-top: 26px; border-top: 1px solid #000; padding-top: 1px; font-size: 0.85em; }
 
 /* ---------- Etiquetas (impresora de etiquetas) ---------- */
 #zona-etiquetas { display: none; }
-.etq { box-sizing: border-box; overflow: hidden; color: #000; background: #fff; font-family: Arial, Helvetica, sans-serif; display: flex; flex-direction: column; }
-.etq-50x30 { width: 50mm; height: 30mm; padding: 1.5mm 2mm; }
-.etq-40x20 { width: 40mm; height: 20mm; padding: 1mm 1.5mm; }
-.etq-nombre { font-weight: 700; line-height: 1.1; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; }
-.etq-50x30 .etq-nombre { font-size: 8pt; -webkit-line-clamp: 2; max-height: 2.2em; }
-.etq-40x20 .etq-nombre { font-size: 6.5pt; -webkit-line-clamp: 1; max-height: 1.1em; }
-.etq-barras { display: block; width: 100%; flex: 1 1 auto; min-height: 0; margin: 0.8mm 0; }
-.etq-pie { display: flex; align-items: flex-end; justify-content: space-between; gap: 1mm; line-height: 1; }
-.etq-sku { font-size: 6pt; }
-.etq-40x20 .etq-sku { font-size: 5pt; }
-.etq-precios { display: flex; flex-direction: column; align-items: flex-end; }
-.etq-precios b { font-size: 11pt; }
-.etq-40x20 .etq-precios b { font-size: 8.5pt; }
-.etq-efvo { font-size: 6.5pt; margin-top: 0.3mm; }
-.etq-40x20 .etq-efvo { font-size: 5.5pt; }
+.etq { box-sizing: border-box; overflow: hidden; color: #000; background: #fff; font-family: Arial, Helvetica, sans-serif; width: 40mm; height: 20mm;
+  container-type: size; display: grid; grid-template-rows: 26% 4% 20% 6% 14% 22% 8%; padding-right: 0.2mm; }
+.etq-50x30 { width: 50mm; height: 30mm; }
+/* nombre en una sola línea: si es largo se corta en el borde (como la celda de la planilla) */
+.etq-nombre { grid-row: 1; display: flex; align-items: center; justify-content: safe center; overflow: hidden; white-space: nowrap; font-weight: 700; font-size: 4.6cqw; padding: 0 0.6mm; }
+.etq-barras { grid-row: 3; display: block; width: 100%; height: 100%; min-height: 0; }
+.etq-rotulos, .etq-precios { display: grid; grid-template-columns: 1fr 1fr; text-align: center; align-items: center; line-height: 1; }
+.etq-rotulos { grid-row: 5; font-size: 5cqw; }
+.etq-precios { grid-row: 6; }
+.etq-precios b { font-size: 8.4cqw; }
+.etq-precios span { font-size: 6.8cqw; }
 .etq-vista { background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .2); overflow: hidden; }
 .etq-vista .etq { transform: scale(calc(4 / 3.7795)); transform-origin: top left; }
 @media print {

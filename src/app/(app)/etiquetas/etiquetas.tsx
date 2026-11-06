@@ -7,11 +7,18 @@ import { createPortal } from "react-dom";
 import { buscar, type ProductoCaja } from "@/lib/caja";
 import { guardar, leer } from "@/lib/caja-local";
 
-type Tamanio = "50x30" | "40x20";
+type Tamanio = "40x20" | "50x30";
+const FORMATOS: { id: Tamanio; nombre: string; ancho: number; alto: number }[] = [
+  { id: "40x20", nombre: "40 × 20 mm", ancho: 40, alto: 20 },
+  { id: "50x30", nombre: "50 × 30 mm", ancho: 50, alto: 30 },
+];
 interface Linea { id: string; cantidad: number }
 interface Carga { clave: string; local_id: number; nota: string | null; creado_en: string; items: { producto_id: string; cantidad: number }[] }
 const CLAVE = "magnolia-etiquetas";
 const precio = (n: number) => `$${Math.round(n).toLocaleString("es-AR")}`;
+/** Como en Precios Deco: el nombre lleva el SKU adelante si no lo tiene ya. */
+const nombreConSku = (p: ProductoCaja) => (p[3].toLowerCase().includes(p[2].toLowerCase()) ? p[3] : `${p[2]} ${p[3]}`);
+const pctEfectivo = (p: ProductoCaja) => (p[4] > 0 && p[5] > 0 && p[5] < p[4] ? Math.round((1 - p[5] / p[4]) * 100) : 0);
 
 function Barras({ valor, alto }: { valor: string; alto: number }) {
   const ref = useRef<SVGSVGElement>(null);
@@ -21,18 +28,15 @@ function Barras({ valor, alto }: { valor: string; alto: number }) {
   return <svg ref={ref} className="etq-barras" preserveAspectRatio="none" />;
 }
 
-export function Etiqueta({ p, tamanio, efectivo }: { p: ProductoCaja; tamanio: Tamanio; efectivo: boolean }) {
+/** Mismo diseño que la última etiqueta de Precios Deco: nombre en una línea, código de punta a punta y los dos precios. */
+export function Etiqueta({ p, tamanio }: { p: ProductoCaja; tamanio: Tamanio }) {
+  const pct = pctEfectivo(p);
   return (
     <div className={`etq etq-${tamanio}`}>
-      <div className="etq-nombre">{p[3]}</div>
-      <Barras valor={p[1] || p[2]} alto={tamanio === "50x30" ? 40 : 30} />
-      <div className="etq-pie">
-        <span className="etq-sku">{p[2]}</span>
-        <span className="etq-precios">
-          <b>{precio(p[4])}</b>
-          {efectivo && p[5] > 0 && p[5] !== p[4] && <span className="etq-efvo">Efvo {precio(p[5])}</span>}
-        </span>
-      </div>
+      <div className="etq-nombre"><span>{nombreConSku(p)}</span></div>
+      <Barras valor={p[1] || p[2]} alto={40} />
+      <div className="etq-rotulos"><span>{pct ? `Efectivo ${pct}%` : "Efectivo"}</span><span>Precio lista</span></div>
+      <div className="etq-precios"><b>{precio(p[5] || p[4])}</b><span>{precio(p[4])}</span></div>
     </div>
   );
 }
@@ -40,8 +44,7 @@ export function Etiqueta({ p, tamanio, efectivo }: { p: ProductoCaja; tamanio: T
 export function Etiquetas() {
   const [catalogo, setCatalogo] = useState<ProductoCaja[] | null>(null);
   const [lineas, setLineas] = useState<Linea[]>([]);
-  const [tamanio, setTamanio] = useState<Tamanio>("50x30");
-  const [efectivo, setEfectivo] = useState(true);
+  const [tamanio, setTamanio] = useState<Tamanio>("40x20");
   const [busqueda, setBusqueda] = useState("");
   const [cargas, setCargas] = useState<Carga[] | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -54,8 +57,7 @@ export function Etiquetas() {
       const g = JSON.parse(localStorage.getItem(CLAVE) ?? "null");
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (g?.lineas) setLineas(g.lineas);
-      if (g?.tamanio) setTamanio(g.tamanio);
-      if (typeof g?.efectivo === "boolean") setEfectivo(g.efectivo);
+      if (FORMATOS.some((f) => f.id === g?.tamanio)) setTamanio(g.tamanio);
     } catch {}
     listo.current = true;
     setMontado(true);
@@ -70,8 +72,8 @@ export function Etiquetas() {
   }, []);
   useEffect(() => {
     if (!listo.current) return;
-    try { localStorage.setItem(CLAVE, JSON.stringify({ lineas, tamanio, efectivo })); } catch {}
-  }, [lineas, tamanio, efectivo]);
+    try { localStorage.setItem(CLAVE, JSON.stringify({ lineas, tamanio })); } catch {}
+  }, [lineas, tamanio]);
 
   const porId = useMemo(() => new Map((catalogo ?? []).map((p) => [p[0], p])), [catalogo]);
   const m = busqueda.match(/^\s*(\d{1,3})\s*[*x]\s*(.+)$/i);
@@ -101,7 +103,8 @@ export function Etiquetas() {
   const impresas = lineas.flatMap((l) => { const p = porId.get(l.id); return p ? Array.from({ length: l.cantidad }, () => p) : []; });
   const total = impresas.length;
   const muestra = lineas.map((l) => porId.get(l.id)).find(Boolean);
-  const [ancho, alto] = tamanio === "50x30" ? [50, 30] : [40, 20];
+  const formato = FORMATOS.find((f) => f.id === tamanio)!;
+  const { ancho, alto } = formato;
 
   return (
     <div className="space-y-5">
@@ -111,9 +114,10 @@ export function Etiquetas() {
           <Link href="/stock" className="text-sm text-suave">← Stock</Link>
           <h1 className="text-2xl font-semibold">Etiquetas</h1>
         </div>
-        <div className="flex gap-2 text-sm">
-          {(["50x30", "40x20"] as const).map((t) => (
-            <button key={t} onClick={() => setTamanio(t)} className={`rounded-full border px-3 py-1.5 ${tamanio === t ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{t.replace("x", " × ")} mm</button>
+        <div className="flex flex-wrap gap-2 text-sm">
+          {FORMATOS.map((f) => (
+            <button key={f.id} onClick={() => setTamanio(f.id)}
+              className={`rounded-full border px-3 py-1.5 ${tamanio === f.id ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{f.nombre}</button>
           ))}
         </div>
       </div>
@@ -173,10 +177,10 @@ export function Etiquetas() {
           <div className="tarjeta space-y-3">
             <p className="text-sm text-suave">Vista previa</p>
             <div className="flex justify-center rounded-lg bg-gray-100 p-4">
-              {muestra ? <div className="etq-vista" style={{ width: `${ancho * 4}px`, height: `${alto * 4}px` }}><div style={{ transform: "scale(1)", transformOrigin: "top left" }}><Etiqueta p={muestra} tamanio={tamanio} efectivo={efectivo} /></div></div>
+              {muestra ? <div className="etq-vista" style={{ width: `${ancho * 4}px`, height: `${alto * 4}px` }}><div style={{ transform: "scale(1)", transformOrigin: "top left" }}><Etiqueta p={muestra} tamanio={tamanio} /></div></div>
                 : <p className="text-sm text-suave">—</p>}
             </div>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={efectivo} onChange={(e) => setEfectivo(e.target.checked)} /> Mostrar precio en efectivo</label>
+            <p className="text-xs text-suave">Mismo diseño que las etiquetas de Precios Deco.</p>
             <button className="boton w-full" disabled={total === 0} onClick={() => window.print()}>Imprimir {total} etiqueta{total === 1 ? "" : "s"}</button>
             {lineas.length > 0 && <button className="w-full text-sm text-suave underline" onClick={() => setLineas([])}>Vaciar lista</button>}
             <p className="text-xs text-suave">En la ventana de impresión elegí la impresora de etiquetas, tamaño de papel {ancho} × {alto} mm, márgenes &quot;Ninguno&quot; y escala 100%.</p>
@@ -184,7 +188,7 @@ export function Etiquetas() {
         </aside>
       </div>
       {montado && createPortal(
-        <div id="zona-etiquetas">{impresas.map((p, i) => <Etiqueta key={i} p={p} tamanio={tamanio} efectivo={efectivo} />)}</div>,
+        <div id="zona-etiquetas">{impresas.map((p, i) => <Etiqueta key={i} p={p} tamanio={tamanio} />)}</div>,
         document.body,
       )}
     </div>

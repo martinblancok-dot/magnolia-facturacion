@@ -26,7 +26,28 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
       <p className="t-centro t-grande">{l.nombre}</p>
       <p className="t-centro">{l.direccion} · General Alvear</p>
       <hr />
-      {tipo === "giftcard" && venta.giftcard_nueva ? (
+      {tipo === "constancia" && venta.movimiento ? (
+        <>
+          <p className="t-centro t-negrita t-grande">{venta.movimiento.tipo === "retiro" ? "RETIRO DE EFECTIVO" : venta.movimiento.tipo === "gasto" ? "GASTO PAGADO CON LA CAJA" : "INGRESO DE EFECTIVO"}</p>
+          <p className="t-centro">Constancia · no válido como factura</p>
+          <hr />
+          <p>{fechaHora(venta.creada_en)}</p>
+          <p className="t-centro t-enorme">{pesos(venta.total)}</p>
+          <p><b>Motivo:</b> {venta.movimiento.motivo || "—"}</p>
+          {venta.movimiento.registro && <p><b>Anotó:</b> {venta.movimiento.registro}</p>}
+          <p className="t-chico">Comprobante {codigo}</p>
+          <hr />
+          {(venta.movimiento.tipo === "ingreso"
+            ? ["Entregó el dinero", "Recibió (caja)"]
+            : [venta.movimiento.tipo === "retiro" ? "Retiró el dinero" : "Recibió el pago", "Entregó (caja)"]).map((t) => (
+            <div key={t} className="firma">
+              <p className="firma-linea">Firma</p>
+              <p className="firma-linea">Aclaración</p>
+              <p className="t-centro t-negrita">{t}</p>
+            </div>
+          ))}
+        </>
+      ) : tipo === "giftcard" && venta.giftcard_nueva ? (
         <>
           <p className="t-centro t-negrita t-grande">GIFT CARD</p>
           <p className="t-centro t-enorme">{pesos(venta.giftcard_nueva.monto)}</p>
@@ -91,9 +112,13 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
           <p className="t-centro t-chico">Presentá este ticket y el producto en buen estado, con su etiqueta.</p>
         </>
       )}
-      <hr />
-      <p className="t-centro">¡Gracias por elegirnos!</p>
-      <p className="t-centro">{l.instagram}</p>
+      {tipo !== "constancia" && (
+        <>
+          <hr />
+          <p className="t-centro">¡Gracias por elegirnos!</p>
+          <p className="t-centro">{l.instagram}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -102,8 +127,8 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
 export function useImpresion() {
   const [trabajo, setTrabajo] = useState<{ venta: VentaImpresa; tipo: TipoImpreso; n: number } | null>(null);
   const [papel, setPapelState] = useState<Papel>(() => {
-    if (typeof window === "undefined") return "80";
-    try { return (localStorage.getItem("magnolia-papel") as Papel) || "80"; } catch { return "80"; }
+    if (typeof window === "undefined") return "58";
+    try { return (localStorage.getItem("magnolia-papel") as Papel) || "58"; } catch { return "58"; }
   });
   useEffect(() => {
     if (!trabajo) return;

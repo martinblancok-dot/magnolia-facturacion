@@ -29,9 +29,11 @@ export interface VentaImpresa {
   giftcard_nueva?: { codigo: string; monto: number } | null;
   /** Cambio de una venta anterior. */
   cambio?: { codigo: string; credito: number } | null;
+  /** Retiro, gasto o ingreso de efectivo (constancia para firmar). */
+  movimiento?: { tipo: "retiro" | "gasto" | "ingreso"; motivo: string; registro: string | null } | null;
 }
 
-export type TipoImpreso = "recibo" | "cambio" | "giftcard";
+export type TipoImpreso = "recibo" | "cambio" | "giftcard" | "constancia";
 
 /** Rango de ids que empiezan con ese código, para buscar la venta en la base. */
 export function rangoCodigo(texto: string): [string, string] | null {

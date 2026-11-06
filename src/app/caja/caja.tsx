@@ -62,6 +62,7 @@ export function Caja() {
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [varios, setVarios] = useState(false);
   const [turno, setTurno] = useState<TurnoLocal | null>(null);
+  const [miNombre, setMiNombre] = useState<string | null>(null);
   const [buscandoTurno, setBuscandoTurno] = useState(true);
   // Al abrir: de qué local, y si ya hay una caja abierta ahí (otra compu) para sumarse
   const [localApertura, setLocalApertura] = useState<number | null>(null);
@@ -206,6 +207,7 @@ export function Caja() {
     fetch("/api/yo", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
       if (!d) return;
       setSoyDuenio(d.rol === "duenio");
+      setMiNombre(d.nombre ?? null);
       try { localStorage.setItem("magnolia-rol", d.rol); } catch {}
     }).catch(() => {});
   }, []);
@@ -290,10 +292,13 @@ export function Caja() {
     setTimeout(() => entrada.current?.focus(), 50);
   };
 
-  const registrarMovimiento = async (tipo: "retiro" | "gasto" | "ingreso", monto: number, motivo: string) => {
+  const registrarMovimiento = async (tipo: "retiro" | "gasto" | "ingreso", monto: number, motivo: string, constancia: boolean) => {
     if (!turno || !(monto > 0)) return;
     const id = crypto.randomUUID();
-    await encolar({ id, clase: "movimiento", datos: { id, turno_id: turno.id, tipo, monto, motivo, creado_en: new Date().toISOString() } });
+    const creado_en = new Date().toISOString();
+    await encolar({ id, clase: "movimiento", datos: { id, turno_id: turno.id, tipo, monto, motivo, creado_en } });
+    try { localStorage.setItem("magnolia-constancia", constancia ? "1" : "0"); } catch {}
+    if (constancia) imprimir({ id, local_id: turno.local_id, creada_en: creado_en, medio: "efectivo", total: monto, items: [], movimiento: { tipo, motivo, registro: miNombre } }, "constancia");
     setMovForm(false);
     setAviso({ ok: true, texto: `${tipo === "retiro" ? "Retiro" : tipo === "gasto" ? "Gasto" : "Ingreso"} de ${pesos(monto)} anotado.` });
     subir();
@@ -611,13 +616,14 @@ export function Caja() {
         <form className="flex flex-wrap items-end gap-3 border-b border-linea bg-marca-claro px-4 py-3" onSubmit={(e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
-          registrarMovimiento(f.get("tipo") as "retiro" | "gasto" | "ingreso", Number(String(f.get("monto")).replace(/\./g, "").replace(",", ".")), String(f.get("motivo") ?? ""));
+          registrarMovimiento(f.get("tipo") as "retiro" | "gasto" | "ingreso", Number(String(f.get("monto")).replace(/\./g, "").replace(",", ".")), String(f.get("motivo") ?? ""), f.get("constancia") === "on");
         }}>
           <label><span className="etiqueta">Tipo</span>
             <select name="tipo" className="campo"><option value="retiro">Retiro de efectivo</option><option value="gasto">Gasto (pago con la caja)</option><option value="ingreso">Ingreso de efectivo</option></select>
           </label>
           <label className="w-36"><span className="etiqueta">Monto</span><input name="monto" className="campo" inputMode="decimal" required autoFocus /></label>
           <label className="min-w-40 flex-1"><span className="etiqueta">Motivo</span><input name="motivo" className="campo" placeholder="Ej: pago flete, retiro Martín" /></label>
+          <label className="flex items-center gap-1.5 self-center text-sm"><input type="checkbox" name="constancia" defaultChecked={(() => { try { return localStorage.getItem("magnolia-constancia") !== "0"; } catch { return true; } })()} /> Imprimir constancia para firmar</label>
           <button className="boton">Anotar</button>
           <button type="button" className="text-sm text-suave underline" onClick={() => setMovForm(false)}>Cancelar</button>
         </form>
@@ -1031,7 +1037,7 @@ export function Caja() {
                 </div>
                 <label className="flex items-center justify-between gap-2 text-xs text-suave">Papel de la impresora
                   <select value={papel} onChange={(e) => setPapel(e.target.value as "80" | "58" | "a4")} className="rounded border border-linea bg-white px-1 py-0.5">
-                    <option value="80">Ticket 80 mm</option><option value="58">Ticket 58 mm</option><option value="a4">Hoja A4</option>
+                    <option value="58">Ticket 58 mm</option><option value="80">Ticket 80 mm</option><option value="a4">Hoja A4</option>
                   </select>
                 </label>
               </div>
