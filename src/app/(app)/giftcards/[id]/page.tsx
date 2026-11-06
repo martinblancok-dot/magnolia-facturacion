@@ -8,6 +8,7 @@ import { codigoVenta } from "@/lib/impresion";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { controlGiftcards } from "@/lib/supabase/giftcards";
 import { usuarioConRol } from "@/lib/supabase/sesion";
+import { Destinatario } from "./destinatario";
 
 const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", dateStyle: "short", timeStyle: "short" });
 const local = (id: number | null | undefined) => (id === 2 ? "Magnolia Beauty" : id === 1 ? "Magnolia Home" : "—");
@@ -37,6 +38,7 @@ export default async function DetalleGiftcard({ params }: { params: Promise<{ id
       </div>
 
       <section className="tarjeta space-y-1 text-sm">
+        <Destinatario id={t.id} inicial={t.destinatario ?? null} />
         <p><span className="text-suave">Vendida:</span> {fechaHora(t.creada_en)} en {local(t.local_id)}{t.vendidaPor ? `, por ${t.vendidaPor}` : ""}</p>
         <p><span className="text-suave">Pagada con:</span> {nombreMedio(t.medio_origen)} → al usarla, los productos van a precio de {nombreMedio(t.medio_origen).toLowerCase()}</p>
         {t.venta_id && <p><span className="text-suave">Venta:</span> <Link href={`/ventas?codigo=${codigoVenta(t.venta_id)}`} className="font-mono text-marca underline">{codigoVenta(t.venta_id)}</Link></p>}
@@ -44,7 +46,7 @@ export default async function DetalleGiftcard({ params }: { params: Promise<{ id
           <div className="flex flex-wrap gap-2 pt-2">
             <Reimprimir venta={{ id: t.venta_id, local_id: t.local_id ?? 1, creada_en: t.creada_en, medio: nombreMedio(t.medio_origen), total: t.monto, paga_con: null,
               items: (items ?? []).map((i) => ({ nombre: i.nombre, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), total: Number(i.total) })),
-              giftcard_nueva: { codigo: t.codigo, monto: t.monto } }} />
+              giftcard_nueva: { codigo: t.codigo, monto: t.monto, destinatario: t.destinatario ?? null } }} />
           </div>
         )}
       </section>

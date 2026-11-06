@@ -50,6 +50,7 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
       ) : tipo === "giftcard" && venta.giftcard_nueva ? (
         <>
           <p className="t-centro t-negrita t-grande">GIFT CARD</p>
+          {venta.giftcard_nueva.destinatario && <p className="t-centro t-grande">Para {venta.giftcard_nueva.destinatario}</p>}
           <p className="t-centro t-enorme">{pesos(venta.giftcard_nueva.monto)}</p>
           <p className="t-centro">Emitida el {fecha(new Date(venta.creada_en))}</p>
           <hr />

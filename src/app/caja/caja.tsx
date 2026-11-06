@@ -25,6 +25,7 @@ interface Carrito {
   pagaCon: string;
   modoGc: boolean; // vendiendo una gift card
   montoGc: string;
+  paraGc?: string; // a quién se le regala la gift card
   gc: GiftCard | null; // gift card con la que se paga
   codigoGc: string;
   medioResto: MedioPago;
@@ -96,6 +97,7 @@ export function Caja() {
   const cambio = c.cambio ?? null;
   const setCambio = setter("cambio"), setDescuento = setter("descuento");
   const setItems = setter("items"), setMedio = setter("medio"), setPagaCon = setter("pagaCon"), setModoGc = setter("modoGc");
+  const setParaGc = setter("paraGc");
   const setMontoGc = setter("montoGc"), setGc = setter("gc"), setCodigoGc = setter("codigoGc"), setMedioResto = setter("medioResto");
 
   useEffect(() => {
@@ -305,7 +307,24 @@ export function Caja() {
   };
 
   // ---- Gift card: buscarla en el servidor (hace falta internet para ver el saldo)
+  const [gcNombres, setGcNombres] = useState<{ codigo: string; destinatario: string; saldo: number; creada_en: string }[] | null>(null);
+  // Si lo escrito no es un código, busca por el nombre de quien la recibió
+  const buscarGc = async (texto: string) => {
+    setGcNombres(null);
+    const limpio = texto.toUpperCase().replace(/^GC/, "").replace(/[^0-9A-F]/g, "");
+    if (limpio.length === 8 && !/[G-Z]/i.test(texto.replace(/^gc/i, "").replace(/[\s-]/g, ""))) return cargarGc(texto);
+    setBuscandoGc(true); setAviso(null);
+    try {
+      const r = await fetch(`/api/giftcards?nombre=${encodeURIComponent(texto)}`, { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) setAviso({ ok: false, texto: d.error ?? "No se pudo buscar." });
+      else if (!d.resultados.length) setAviso({ ok: false, texto: `No hay gift cards con saldo a nombre de "${texto}".` });
+      else setGcNombres(d.resultados);
+    } catch { setAviso({ ok: false, texto: "Sin internet no se pueden buscar gift cards." }); }
+    setBuscandoGc(false);
+  };
   const cargarGc = async (codigo: string) => {
+    setGcNombres(null);
     setMedio("giftcard"); setModoGc(false); setCodigoGc(codigo.toUpperCase()); setGc(null); setBuscandoGc(true); setAviso(null);
     try {
       const r = await fetch(`/api/giftcards?codigo=${encodeURIComponent(codigo)}`, { cache: "no-store" });
@@ -383,9 +402,9 @@ export function Caja() {
     if (!local || !(montoNuevaGc > 0)) return;
     if (medio === "efectivo" && pago > 0 && pago < montoNuevaGc) { setAviso({ ok: false, texto: "El pago es menor al valor de la gift card." }); return; }
     const idTarjeta = crypto.randomUUID();
-    const v = { ...armarVentaNuevaGiftcard(montoNuevaGc, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), idTarjeta), turno_id: turno?.id ?? null };
+    const v = { ...armarVentaNuevaGiftcard(montoNuevaGc, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), idTarjeta, new Date(), c.paraGc), turno_id: turno?.id ?? null };
     try { await guardarVenta(v); } catch { setAviso({ ok: false, texto: "No se pudo guardar la venta en esta compu. Probá de nuevo." }); return; }
-    terminarVenta(v, { giftcard_nueva: { codigo: codigoGiftcard(idTarjeta), monto: v.total } });
+    terminarVenta(v, { giftcard_nueva: { codigo: codigoGiftcard(idTarjeta), monto: v.total, destinatario: v.giftcard_nueva?.destinatario ?? null } });
   };
 
   // Con gift card la venta se sube en el momento: el saldo se descuenta en el servidor
@@ -896,6 +915,7 @@ export function Caja() {
                 <input value={montoGc} onChange={(e) => setMontoGc(e.target.value)} className="mt-1 w-full rounded-xl border-2 border-linea px-3 py-2 text-4xl font-semibold tabular-nums outline-none focus:border-marca"
                   inputMode="decimal" placeholder="$ 0" autoFocus />
                 <span className="ayuda block">Se cobra completo. Al usarla, los productos van al precio del medio con que se pagó.</span>
+                <input value={c.paraGc ?? ""} onChange={(e) => setParaGc(e.target.value)} className="campo mt-2" placeholder="Para quién es (opcional): nombre y apellido" autoComplete="off" />
               </label>
             ) : (
               <div>
@@ -954,12 +974,21 @@ export function Caja() {
 
             {conGc && (
               <div className="space-y-3 rounded-xl bg-marca-claro p-3">
-                {!gc ? (
-                  <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (codigoGc.trim()) cargarGc(codigoGc.trim()); }}>
-                    <input value={codigoGc} onChange={(e) => setCodigoGc(e.target.value)} className="campo uppercase" placeholder="Código de la gift card" autoFocus autoComplete="off" />
+                {!gc ? (<>
+                  <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); if (codigoGc.trim()) buscarGc(codigoGc.trim()); }}>
+                    <input value={codigoGc} onChange={(e) => setCodigoGc(e.target.value)} className="campo" placeholder="Código o nombre de quien la recibió" autoFocus autoComplete="off" />
                     <button className="boton" disabled={buscandoGc}>{buscandoGc ? "…" : "Buscar"}</button>
                   </form>
-                ) : (
+                  {gcNombres && (
+                    <ul className="divide-y divide-linea rounded-lg border border-linea bg-white text-sm">
+                      {gcNombres.map((g) => (
+                        <li key={g.codigo}><button className="flex w-full justify-between gap-2 px-3 py-2 text-left hover:bg-marca-claro" onClick={() => cargarGc(g.codigo)}>
+                          <span><b>{g.destinatario}</b> <span className="font-mono text-xs text-suave">{g.codigo} · {new Date(g.creada_en).toLocaleDateString("es-AR")}</span></span>
+                          <span className="font-semibold">{pesos(g.saldo)}</span></button></li>
+                      ))}
+                    </ul>
+                  )}
+                </>) : (
                   <>
                     <p className="flex justify-between text-sm"><span>Gift card <b className="font-mono">{gc.codigo}</b></span><span>Saldo <b>{pesos(gc.saldo)}</b></span></p>
                     {cgc && items.length > 0 && (

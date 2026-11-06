@@ -1,7 +1,7 @@
 // Control de gift cards: estado de cada tarjeta a partir de sus movimientos.
 export type EstadoGc = "sin-usar" | "en-parte" | "agotada" | "anulada";
 
-export interface TarjetaBase { id: string; codigo: string; monto: number; saldo: number; medio_origen: string; local_id: number | null; venta_id: string | null; creada_en: string; anulada: boolean }
+export interface TarjetaBase { id: string; codigo: string; monto: number; saldo: number; medio_origen: string; local_id: number | null; venta_id: string | null; creada_en: string; anulada: boolean; destinatario?: string | null }
 export interface MovimientoGc { giftcard_id: string; venta_id: string | null; monto: number; creado_en: string }
 
 export const NOMBRE_ESTADO: Record<EstadoGc, string> = { "sin-usar": "Sin usar", "en-parte": "Usada en parte", agotada: "Agotada", anulada: "Anulada" };

@@ -31,8 +31,10 @@ export async function POST(req: Request) {
       }
     }
     const r = await db.rpc("registrar_venta", { v, usuario: u.id });
-    if (r.error) rechazadas.push({ id, motivo: r.error.message });
-    else recibidas.push(id); // nueva o ya registrada: en ambos casos la caja la puede borrar
+    if (r.error) { rechazadas.push({ id, motivo: r.error.message }); continue; }
+    const para = x.giftcard_nueva?.destinatario?.trim();
+    if (para) await db.from("giftcards").update({ destinatario: para.slice(0, 80) }).eq("id", x.giftcard_nueva!.id).is("destinatario", null); // sin la migración 0018 no hace nada
+    recibidas.push(id); // nueva o ya registrada: en ambos casos la caja la puede borrar
   }
   return NextResponse.json({ recibidas, rechazadas });
 }

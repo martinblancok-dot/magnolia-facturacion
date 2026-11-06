@@ -639,3 +639,16 @@ export async function probarMailCierre(): Promise<Mensaje> {
   const err = await enviarMail(db, cfg.mails, "Prueba · resumen del cierre Magnolia", "*Prueba del sistema Magnolia*\nSi te llegó este mail, el resumen del cierre de caja va a llegar acá.");
   return err ? { ok: false, texto: err } : { ok: true, texto: `Mail de prueba enviado a ${cfg.mails.join(", ")}.` };
 }
+
+// ---------- Gift cards ----------
+
+export async function cambiarDestinatarioGc(id: string, destinatario: string): Promise<Mensaje> {
+  await usuarioActual();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, texto: "Gift card inválida." };
+  const valor = destinatario.trim().slice(0, 80) || null;
+  const { error } = await clienteServidor().from("giftcards").update({ destinatario: valor }).eq("id", id);
+  if (error) return { ok: false, texto: /destinatario/.test(error.message) ? "Falta correr la migración 0018_giftcard_destinatario.sql en Supabase." : error.message };
+  revalidatePath(`/giftcards/${id}`);
+  revalidatePath("/giftcards");
+  return { ok: true, texto: valor ? "Guardado." : "Nombre borrado." };
+}

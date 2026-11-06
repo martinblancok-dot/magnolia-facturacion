@@ -138,7 +138,7 @@ export interface VentaParaSubir {
   cambio_de?: string | null;
   credito_cambio?: number;
   /** Venta de una gift card nueva: se crea al subir la venta. */
-  giftcard_nueva?: { id: string; monto: number; medio: MedioPago } | null;
+  giftcard_nueva?: { id: string; monto: number; medio: MedioPago; destinatario?: string | null } | null;
   /** Pago con gift card: cuánto se descuenta de su saldo (no entra a la caja). */
   giftcard_id?: string | null;
   giftcard_monto?: number;
@@ -228,14 +228,15 @@ export function armarVentaCambio(
 
 /** Venta de una gift card: se cobra el valor de la tarjeta, sin descuento, con el medio que sea. */
 export function armarVentaNuevaGiftcard(
-  monto: number, medio: MedioPago, local: number, terminal: string, pagaCon: number | null, id: string, idTarjeta: string, ahora = new Date(),
+  monto: number, medio: MedioPago, local: number, terminal: string, pagaCon: number | null, id: string, idTarjeta: string, ahora = new Date(), destinatario?: string | null,
 ): VentaParaSubir {
   const m = redondear(monto);
+  const para = (destinatario ?? "").trim().slice(0, 80) || null;
   return {
     id, local_id: local, terminal, creada_en: ahora.toISOString(), medio_pago: medio, total: m, total_lista: m,
     paga_con: medio === "efectivo" ? pagaCon : null,
-    items: [{ producto_id: null, barcode: null, sku: null, nombre: `Gift card ${codigoGiftcard(idTarjeta)}`, cantidad: 1, precio_unitario: m, total: m }],
-    giftcard_nueva: { id: idTarjeta, monto: m, medio },
+    items: [{ producto_id: null, barcode: null, sku: null, nombre: `Gift card ${codigoGiftcard(idTarjeta)}${para ? ` · para ${para}` : ""}`, cantidad: 1, precio_unitario: m, total: m }],
+    giftcard_nueva: { id: idTarjeta, monto: m, medio, destinatario: para },
   };
 }
 

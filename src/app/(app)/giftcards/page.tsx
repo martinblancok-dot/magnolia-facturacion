@@ -21,14 +21,17 @@ export default async function GiftCards({ searchParams }: { searchParams: Promis
   const { rol } = await usuarioConRol();
   const duenio = rol === "duenio";
   const sp = await searchParams;
-  const q = (sp.q ?? "").trim().toUpperCase().replace(/^GC/, "").replace(/[^0-9A-F]/g, "");
+  const texto = (sp.q ?? "").trim();
+  const q = texto.toUpperCase().replace(/^GC/, "").replace(/[^0-9A-F]/g, "");
+  const sinTildes = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const porNombre = texto.length >= 2 ? sinTildes(texto).split(/\s+/) : [];
   const { tarjetas: todas, error } = await controlGiftcards(clienteServidor());
   const desde = /^\d{4}-\d{2}-\d{2}$/.test(sp.desde ?? "") ? sp.desde! : "";
   const hasta = /^\d{4}-\d{2}-\d{2}$/.test(sp.hasta ?? "") ? sp.hasta! : "";
   const diaAR = (iso: string) => new Date(Date.parse(iso) - 3 * 3600_000).toISOString().slice(0, 10);
   const enPeriodo = todas.filter((t) => (!desde || diaAR(t.creada_en) >= desde) && (!hasta || diaAR(t.creada_en) <= hasta));
   const filtradas = enPeriodo.filter((t) => {
-    if (q && !t.codigo.includes(q)) return false;
+    if (texto && !(q.length >= 2 && t.codigo.includes(q)) && !(t.destinatario && porNombre.every((p) => sinTildes(t.destinatario!).includes(p)))) return false;
     const e = estadoGc(t);
     if (sp.estado === "saldo") return e === "sin-usar" || e === "en-parte";
     return !sp.estado || e === sp.estado;
@@ -52,7 +55,7 @@ export default async function GiftCards({ searchParams }: { searchParams: Promis
           <p className="text-sm text-suave">Se venden desde la caja (🎁 Vender gift card) y se usan en los dos locales.</p>
         </div>
         <form className="flex gap-2">
-          <input name="q" defaultValue={sp.q ?? ""} className="campo w-56 uppercase" placeholder="Escaneá o escribí el código" autoComplete="off" />
+          <input name="q" defaultValue={sp.q ?? ""} className="campo w-64" placeholder="Código o nombre de quien la recibió" autoComplete="off" />
           <button className="boton">Buscar</button>
         </form>
       </div>
@@ -91,7 +94,7 @@ export default async function GiftCards({ searchParams }: { searchParams: Promis
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-linea bg-white">
-            {filtradas.length === 0 ? <p className="px-6 py-10 text-center text-suave">{q ? `No hay ninguna gift card con el código ${q}.` : "No hay gift cards con ese filtro."}</p> : (
+            {filtradas.length === 0 ? <p className="px-6 py-10 text-center text-suave">{texto ? `No hay ninguna gift card con "${texto}".` : "No hay gift cards con ese filtro."}</p> : (
               <table className="w-full min-w-[860px] text-sm">
                 <thead className="border-b border-linea text-left text-xs tracking-wide text-suave uppercase">
                   <tr>
@@ -105,7 +108,7 @@ export default async function GiftCards({ searchParams }: { searchParams: Promis
                     const e = estadoGc(t);
                     return (
                       <tr key={t.id} className="hover:bg-marca-claro/50">
-                        <td className="px-4 py-2.5"><Link href={`/giftcards/${t.id}`} className="font-mono font-semibold text-marca underline">{t.codigo}</Link></td>
+                        <td className="px-4 py-2.5"><Link href={`/giftcards/${t.id}`} className="font-mono font-semibold text-marca underline">{t.codigo}</Link>{t.destinatario && <span className="block text-xs">para <b>{t.destinatario}</b></span>}</td>
                         <td className="px-3 py-2.5">{fecha(t.creada_en)} · {local(t.local_id)}<span className="block text-xs text-suave">{t.vendidaPor ? `por ${t.vendidaPor} · ` : ""}{(() => { const d = diasDesde(t.creada_en); return d === 0 ? "hoy" : d === 1 ? "ayer" : `hace ${d} días`; })()}</span></td>
                         <td className="px-3 py-2.5">{nombreMedio(t.medio_origen)}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums">{pesos(t.monto)}</td>
