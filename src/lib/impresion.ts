@@ -22,6 +22,8 @@ export interface VentaImpresa {
   medio: string; // nombre del medio de pago
   total: number;
   paga_con?: number | null;
+  /** Pago dividido: cada parte con el nombre del medio. */
+  pagos?: { medio: string; monto: number; efectivo?: boolean }[] | null;
   items: { nombre: string; cantidad: number; precio_unitario: number; total: number }[];
   /** Se pagó (en parte o todo) con una gift card. */
   giftcard?: { codigo: string; usado: number; saldo: number | null } | null;

@@ -20,7 +20,8 @@ function Barras({ valor }: { valor: string }) {
 export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpreso }) {
   const l = DATOS_LOCAL[venta.local_id] ?? DATOS_LOCAL[1];
   const codigo = codigoVenta(venta.id);
-  const vuelto = venta.paga_con && venta.paga_con > venta.total ? venta.paga_con - venta.total : 0;
+  const enEfectivo = venta.pagos?.length ? venta.pagos.find((p) => p.efectivo)?.monto ?? 0 : venta.total;
+  const vuelto = venta.paga_con && venta.paga_con > enEfectivo ? venta.paga_con - enEfectivo : 0;
   return (
     <div className="impreso">
       <p className="t-centro t-grande">{l.nombre}</p>
@@ -91,7 +92,9 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
           ) : (
             <>
               <p className="fila t-grande"><span>TOTAL</span><span>{pesos(venta.total)}</span></p>
-              <p className="fila"><span>Pago</span><span>{venta.medio}</span></p>
+              {venta.pagos?.length
+                ? venta.pagos.map((p) => <p key={p.medio} className="fila"><span>{p.medio}</span><span>{pesos(p.monto)}</span></p>)
+                : <p className="fila"><span>Pago</span><span>{venta.medio}</span></p>}
             </>
           )}
           {venta.paga_con ? <p className="fila"><span>Paga con</span><span>{pesos(venta.paga_con)}</span></p> : null}

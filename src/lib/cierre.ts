@@ -1,5 +1,5 @@
 // Cuentas del cierre de caja y cruce de pagos con Mercado Pago (funciones puras, se prueban solas).
-import { MEDIOS, type MedioPago } from "./caja";
+import { MEDIOS, partesPago, type MedioPago } from "./caja";
 
 export const DENOMINACIONES = [20000, 10000, 2000, 1000, 500, 200, 100] as const;
 
@@ -16,6 +16,7 @@ export interface VentaTurno {
   medio_pago: MedioPago;
   total: number;
   anulada?: boolean;
+  pagos?: { medio: string; monto: number }[] | null; // pago dividido en dos medios
 }
 
 export interface MovimientoCaja {
@@ -27,8 +28,11 @@ export function resumenTurno(fondo: number, ventas: VentaTurno[], movimientos: M
   const validas = ventas.filter((v) => !v.anulada);
   const porMedio = Object.fromEntries(MEDIOS.map((m) => [m.id, { total: 0, cantidad: 0 }])) as Record<MedioPago, { total: number; cantidad: number }>;
   for (const v of validas) {
-    porMedio[v.medio_pago].total += Number(v.total);
-    porMedio[v.medio_pago].cantidad++;
+    for (const p of partesPago(v)) {
+      if (!porMedio[p.medio]) continue;
+      porMedio[p.medio].total += p.monto;
+      porMedio[p.medio].cantidad++;
+    }
   }
   const suma = (t: MovimientoCaja["tipo"]) => movimientos.filter((m) => m.tipo === t).reduce((s, m) => s + Number(m.monto), 0);
   const total = validas.reduce((s, v) => s + Number(v.total), 0);
@@ -81,7 +85,9 @@ export interface ResultadoCruce {
  * si hay varios candidatos se toma el de hora más cercana.
  */
 export function cruzarPagos(ventas: VentaTurno[], cobros: CobroMP[]): ResultadoCruce {
-  const aCruzar = ventas.filter((v) => !v.anulada && ORIGEN_ESPERADO[v.medio_pago]);
+  // Con pago dividido se cruza solo la parte que no es efectivo
+  const aCruzar = ventas.filter((v) => !v.anulada).flatMap((v) =>
+    partesPago(v).filter((p) => ORIGEN_ESPERADO[p.medio]).map((p) => ({ ...v, medio_pago: p.medio, total: p.monto })));
   const libres = new Map(cobros.map((c) => [c.id, c]));
   const encontrados: ResultadoCruce["encontrados"] = [];
   const ventasSinCobro: VentaTurno[] = [];

@@ -32,6 +32,10 @@ export async function POST(req: Request) {
     }
     const r = await db.rpc("registrar_venta", { v, usuario: u.id });
     if (r.error) { rechazadas.push({ id, motivo: r.error.message }); continue; }
+    if (Array.isArray(x.pagos) && x.pagos.length === 2) {
+      const r2 = await db.from("ventas").update({ pagos: x.pagos.map((p) => ({ medio: p.medio, monto: Number(p.monto) })) }).eq("id", id);
+      if (r2.error) console.error("pago dividido sin guardar (¿falta la migración 0019?)", r2.error.message);
+    }
     const para = x.giftcard_nueva?.destinatario?.trim();
     if (para) await db.from("giftcards").update({ destinatario: para.slice(0, 80) }).eq("id", x.giftcard_nueva!.id).is("destinatario", null); // sin la migración 0018 no hace nada
     recibidas.push(id); // nueva o ya registrada: en ambos casos la caja la puede borrar

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agregar, armarVenta, armarVentaCambio, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
+  armarVentaDividida, cobroDividido,
 } from "@/lib/caja";
 import { encolar, guardar, guardarVenta, leer, outbox, ventasPendientes, type TurnoLocal } from "@/lib/caja-local";
 import { guardarTurno, subirTodo, turnoDeEstaCompu } from "@/lib/caja-sync";
@@ -31,6 +32,7 @@ interface Carrito {
   medioResto: MedioPago;
   cambio?: CambioEnCurso | null; // cambio o devolución de una venta anterior
   descuento?: DescuentoManual | null;
+  dividir?: { monto: string; resto: MedioPago } | null; // pago en dos medios
 }
 const carritoNuevo = (): Carrito => ({ id: crypto.randomUUID(), items: [], medio: "efectivo", pagaCon: "", modoGc: false, montoGc: "", gc: null, codigoGc: "", medioResto: "efectivo" });
 const vacio = (c: Carrito) => c.items.length === 0 && !c.modoGc && !c.gc && !c.cambio;
@@ -380,11 +382,18 @@ export function Caja() {
   const medioPrecio: MedioPago = cambio ? cambio.medio_precio : conGc ? gc?.medio_origen ?? "cuotas" : medio;
   const t = totales(items, medioPrecio, ext);
   const montoNuevaGc = Number(montoGc.replace(/\./g, "").replace(",", ".")) || 0;
+  // Pago en dos medios: una parte con el medio elegido y el resto con otro, cada parte a su precio
+  const dividir = !modoGc && !cambio && !conGc && items.length > 0 ? c.dividir ?? null : null;
+  const montoDiv = dividir ? Number(dividir.monto.replace(/\./g, "").replace(",", ".")) || 0 : 0;
+  const div = dividir ? cobroDividido(items, medio, montoDiv, dividir.resto, ext) : null;
+  const setDividir = setter("dividir");
   // lo que se cobra en la caja ahora (con la gift card, solo la diferencia)
-  const aCobrar = modoGc ? montoNuevaGc : rc ? rc.falta : conGc ? cgc?.falta ?? 0 : t.total;
-  const medioEfectivo = modoGc ? medio === "efectivo" : rc ? rc.falta > 0 && medioResto === "efectivo" : conGc ? (cgc?.falta ?? 0) > 0 && medioResto === "efectivo" : medio === "efectivo";
+  const aCobrar = modoGc ? montoNuevaGc : rc ? rc.falta : conGc ? cgc?.falta ?? 0 : div ? div.total : t.total;
+  // lo que se paga en efectivo (para el vuelto)
+  const enEfectivo = div ? (medio === "efectivo" ? div.usa : dividir!.resto === "efectivo" ? div.falta : 0) : aCobrar;
+  const medioEfectivo = dividir ? medio === "efectivo" || dividir.resto === "efectivo" : modoGc ? medio === "efectivo" : rc ? rc.falta > 0 && medioResto === "efectivo" : conGc ? (cgc?.falta ?? 0) > 0 && medioResto === "efectivo" : medio === "efectivo";
   const pago = Number(pagaCon.replace(/\./g, "").replace(",", ".")) || 0;
-  const vuelto = medioEfectivo && pago > 0 ? redondear(pago - aCobrar) : null;
+  const vuelto = medioEfectivo && pago > 0 && (!dividir || div) ? redondear(pago - enEfectivo) : null;
 
   const terminarVenta = (v: VentaParaSubir, impresa: Partial<VentaImpresa>) => {
     setAviso(null);
@@ -522,6 +531,16 @@ export function Caja() {
     if (cambio) return cobrarCambio();
     if (conGc) return cobrarConGiftcard();
     if (!local || items.length === 0) return;
+    if (dividir) {
+      if (!div) { setAviso({ ok: false, texto: `Poné cuánto paga en ${nombreMedio(medio).toLowerCase()} (menos que el total) y con qué paga el resto.` }); return; }
+      if (pago > 0 && pago < enEfectivo) { setAviso({ ok: false, texto: "Lo que entrega en efectivo es menos que la parte en efectivo." }); return; }
+      const vd = armarVentaDividida(items, medio, montoDiv, dividir.resto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext);
+      if (!vd) return;
+      const v = { ...vd, turno_id: turno?.id ?? null };
+      try { await guardarVenta(v); } catch { setAviso({ ok: false, texto: "No se pudo guardar la venta en esta compu. Probá de nuevo." }); return; }
+      terminarVenta(v, { medio: v.pagos!.map((p) => nombreMedio(p.medio)).join(" + "), pagos: v.pagos!.map((p) => ({ medio: nombreMedio(p.medio), monto: p.monto, efectivo: p.medio === "efectivo" })) });
+      return;
+    }
     if (medio === "efectivo" && pago > 0 && pago < t.total) { setAviso({ ok: false, texto: "El pago es menor al total." }); return; }
     const v = { ...armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
     try {
@@ -592,12 +611,12 @@ export function Caja() {
   }
 
   const sugerenciasEfectivo = (() => {
-    if (!(aCobrar > 0)) return [];
-    const arriba = (m: number) => Math.ceil(aCobrar / m) * m;
-    return [...new Set([aCobrar, arriba(1000), arriba(5000), arriba(10000), arriba(20000)])].filter((x) => x >= aCobrar).slice(0, 4);
+    if (!(enEfectivo > 0)) return [];
+    const arriba = (m: number) => Math.ceil(enEfectivo / m) * m;
+    return [...new Set([enEfectivo, arriba(1000), arriba(5000), arriba(10000), arriba(20000)])].filter((x) => x >= enEfectivo).slice(0, 4);
   })();
   const hayCarrito = items.length > 0 || modoGc || !!cambio;
-  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0 : cambio ? cambio.devoluciones.length > 0 : items.length > 0 && (!conGc || !!gc));
+  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0 : cambio ? cambio.devoluciones.length > 0 : items.length > 0 && (!conGc || !!gc) && (!dividir || !!div));
   const unidades = (x: Carrito) => x.items.reduce((s2, y) => s2 + y.cantidad, 0);
   const totalDe = (x: Carrito) => x.modoGc ? (Number(x.montoGc.replace(/\./g, "").replace(",", ".")) || 0)
     : totales(x.items, x.medio === "giftcard" ? x.gc?.medio_origen ?? "cuotas" : x.medio).total;
@@ -920,7 +939,7 @@ export function Caja() {
             ) : (
               <div>
                 <p className="text-xs text-suave">{t.unidades ? `${t.unidades} ${t.unidades === 1 ? "unidad" : "unidades"}` : "Total"}{conGc && gc ? ` · precio ${nombreMedio(gc.medio_origen).toLowerCase()} (como se pagó la gift card)` : ""}</p>
-                <p className="text-4xl leading-tight font-semibold tracking-tight tabular-nums">{pesos(t.total)}</p>
+                <p className="text-4xl leading-tight font-semibold tracking-tight tabular-nums">{pesos(div ? div.total : t.total)}</p>
               </div>
             )}
 
@@ -953,11 +972,11 @@ export function Caja() {
                 {MEDIOS_CAJA.map((m) => {
                   const elegido = medio === m.id;
                   return (
-                    <button key={m.id} onClick={() => { setMedio(m.id); setGc(null); }}
+                    <button key={m.id} onClick={() => { setMedio(m.id); setGc(null); if (c.dividir?.resto === m.id) setDividir({ ...c.dividir, resto: m.id === "efectivo" ? "transferencia" : "efectivo" }); }}
                       className={`rounded-xl border-2 px-2.5 py-1.5 text-left leading-tight transition ${elegido ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
                       <span className="block truncate text-xs font-semibold">{m.id === "cuotas" ? "Crédito cuotas" : m.nombre}</span>
                       {!modoGc && items.length > 0 && (
-                        <span className={`mt-0.5 block text-sm font-semibold tabular-nums ${elegido ? "text-white/90" : "text-tinta/70"}`}>{pesos(totales(items, m.id).total).replace(",00", "")}</span>
+                        <span className={`mt-0.5 block text-sm font-semibold tabular-nums ${elegido ? "text-white/90" : "text-tinta/70"}`}>{pesos(totales(items, m.id, ext).total).replace(",00", "")}</span>
                       )}
                     </button>
                   );
@@ -970,7 +989,44 @@ export function Caja() {
                   </button>
                 )}
               </div>
+              {!modoGc && !conGc && items.length > 0 && !dividir && (
+                <button className="mt-1.5 text-sm text-marca underline" onClick={() => { setDividir({ monto: "", resto: medio === "efectivo" ? "transferencia" : "efectivo" }); setAviso(null); }}>
+                  + Pagar con dos medios
+                </button>
+              )}
             </div>}
+
+            {dividir && (
+              <div className="space-y-2 rounded-xl bg-marca-claro p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Pago en dos medios</p>
+                  <button className="text-xs text-suave underline" onClick={() => setDividir(null)}>Pagar con uno solo</button>
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <span className="shrink-0">En {nombreMedio(medio).toLowerCase()}</span>
+                  <input autoFocus value={dividir.monto} onChange={(e) => setDividir({ ...dividir, monto: e.target.value })} inputMode="decimal" placeholder="$ cuánto"
+                    className="min-w-0 flex-1 rounded-lg border border-linea bg-white px-2 py-1.5 text-right text-base tabular-nums outline-none focus:border-marca" />
+                </label>
+                <div>
+                  <p className="text-xs font-semibold text-suave">El resto con</p>
+                  <div className="mt-1 grid grid-cols-3 gap-1.5">
+                    {MEDIOS_CAJA.filter((m) => m.id !== medio).map((m) => (
+                      <button key={m.id} onClick={() => setDividir({ ...dividir, resto: m.id })}
+                        className={`rounded-lg border px-2 py-1.5 text-xs font-semibold ${dividir.resto === m.id ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{m.id === "cuotas" ? "Crédito cuotas" : m.nombre}</button>
+                    ))}
+                  </div>
+                </div>
+                {div ? (
+                  <div className="space-y-0.5 text-sm">
+                    <p className="flex justify-between"><span>{nombreMedio(medio)}</span><b className="tabular-nums">{pesos(div.usa)}</b></p>
+                    <p className="flex justify-between"><span>Resto en {nombreMedio(dividir.resto).toLowerCase()}</span><b className="tabular-nums">{pesos(div.falta)}</b></p>
+                    <p className="flex justify-between border-t border-linea pt-0.5 text-base"><span>Total</span><b className="tabular-nums">{pesos(div.total)}</b></p>
+                  </div>
+                ) : montoDiv > 0 ? (
+                  <p className="text-sm text-amber-900">Tiene que ser menos que el total en {nombreMedio(medio).toLowerCase()} ({pesos(t.total)}).</p>
+                ) : null}
+              </div>
+            )}
 
             {conGc && (
               <div className="space-y-3 rounded-xl bg-marca-claro p-3">
@@ -1052,11 +1108,16 @@ export function Caja() {
                     ? <>{ultima.total > 0 ? <>Pagó la diferencia: {pesos(ultima.total)} en {ultima.medio}.</> : ultima.giftcard_nueva ? <>Saldo a favor en la gift card <b>{ultima.giftcard_nueva.codigo}</b>: <b>{pesos(ultima.giftcard_nueva.monto)}</b>. Imprimila y entregásela.</> : "Cambio justo, sin diferencia."}</>
                     : ultima.giftcard
                     ? <>{pesos(ultima.giftcard.usado)} con gift card{ultima.total > 0 ? <> + {pesos(ultima.total)} en {ultima.medio}</> : null}. Saldo que le queda: <b>{pesos(ultima.giftcard.saldo ?? 0)}</b></>
+                    : ultima.pagos?.length
+                    ? <>{ultima.pagos.map((p) => `${pesos(p.monto)} en ${p.medio.toLowerCase()}`).join(" + ")}</>
                     : <>{pesos(ultima.total)} en {ultima.medio}</>}
                 </p>
-                {ultima.paga_con && ultima.paga_con > ultima.total ? (
-                  <p className="flex items-baseline justify-between rounded-lg bg-white px-3 py-2"><span className="text-sm font-semibold">Vuelto</span><span className="text-2xl font-semibold tabular-nums">{pesos(ultima.paga_con - ultima.total)}</span></p>
-                ) : null}
+                {(() => {
+                  const ef = ultima.pagos?.length ? ultima.pagos.find((p) => p.efectivo)?.monto ?? 0 : ultima.total;
+                  return ultima.paga_con && ultima.paga_con > ef ? (
+                    <p className="flex items-baseline justify-between rounded-lg bg-white px-3 py-2"><span className="text-sm font-semibold">Vuelto</span><span className="text-2xl font-semibold tabular-nums">{pesos(ultima.paga_con - ef)}</span></p>
+                  ) : null;
+                })()}
                 {ultima.giftcard_nueva && (
                   <button className="boton w-full justify-center" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>🎁 Imprimir gift card</button>
                 )}
@@ -1077,7 +1138,7 @@ export function Caja() {
           <div className="sticky bottom-0 rounded-b-2xl border-t border-linea bg-white p-3 md:p-4">
             <button className="flex w-full items-center justify-between rounded-2xl bg-marca px-5 py-3 text-white shadow-sm transition hover:opacity-95 disabled:opacity-40" onClick={cobrar} disabled={!listoParaCobrar}>
               <span className="text-lg font-semibold">
-                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : rc ? (rc.falta > 0 ? "Cobrar diferencia" : rc.aFavor > 0 ? "Confirmar y dar gift card" : "Confirmar cambio") : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : "Cobrar"}
+                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : rc ? (rc.falta > 0 ? "Cobrar diferencia" : rc.aFavor > 0 ? "Confirmar y dar gift card" : "Confirmar cambio") : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : dividir ? "Cobrar en dos medios" : "Cobrar"}
               </span>
               <span className="text-2xl font-semibold tabular-nums">{!hayCarrito ? "" : rc ? pesos(rc.falta > 0 ? rc.falta : rc.aFavor) : modoGc || !conGc ? pesos(aCobrar) : cgc ? pesos(cgc.falta > 0 ? cgc.falta : cgc.usa) : ""}</span>
             </button>

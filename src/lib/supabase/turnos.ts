@@ -34,10 +34,10 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
   const erroresMP = refrescar ? await refrescarCobros(db, minutos(t.abierta_en, -180)) : [];
 
   const [{ data: ventas }, { data: movs }, { data: delPeriodo }, { data: cobros }, { data: items }] = await Promise.all([
-    db.from("ventas").select("id, numero, creada_en, medio_pago, total, anulada").eq("turno_id", t.id).order("creada_en"),
+    db.from("ventas").select("*").eq("turno_id", t.id).order("creada_en"),
     db.from("caja_movimientos").select("tipo, monto, motivo, creado_en").eq("turno_id", t.id).order("creado_en"),
     // ventas no-efectivo de los DOS locales en el período: un mismo cobro de MP puede ser del otro local
-    db.from("ventas").select("id, numero, creada_en, medio_pago, total, anulada, local_id")
+    db.from("ventas").select("*")
       .neq("medio_pago", "efectivo").gte("creada_en", minutos(t.abierta_en, -MINUTOS_DESPUES)).lte("creada_en", minutos(hasta, MINUTOS_ANTES)),
     db.from("cobros").select("id, fecha_hora, importe, origen")
       .gte("fecha_hora", minutos(t.abierta_en, -MINUTOS_ANTES)).lte("fecha_hora", minutos(hasta, MINUTOS_DESPUES)),

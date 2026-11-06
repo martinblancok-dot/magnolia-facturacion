@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { anularVenta, pedirAnulacion, rechazarAnulacion } from "../../acciones";
 import { BotonAccion, Formulario } from "../../componentes";
-import { MEDIOS_CAJA, nombreMedio } from "@/lib/caja";
+import { MEDIOS_CAJA, partesPago, nombreMedio } from "@/lib/caja";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -14,7 +14,7 @@ type Venta = {
   id: string; numero: number; local_id: number; creada_en: string; medio_pago: string; total: number; total_lista: number;
   anulada: boolean; paga_con: number | null;
   anulacion_pedida_por?: string | null; anulacion_pedida_en?: string | null; anulacion_motivo?: string | null; anulacion_rechazada_en?: string | null;
-  giftcard_id?: string | null; giftcard_monto?: number | null;
+  giftcard_id?: string | null; giftcard_monto?: number | null; pagos?: { medio: string; monto: number }[] | null;
   venta_items: { n: number; nombre: string; sku: string | null; cantidad: number; precio_unitario: number; total: number }[];
 };
 
@@ -59,7 +59,8 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
     duenio ? db.from("ventas").select(BASE + PEDIDOS).not("anulacion_pedida_en", "is", null).eq("anulada", false).order("anulacion_pedida_en") : Promise.resolve({ data: [] }),
   ]);
   // si todavía no se corrieron las migraciones nuevas, se ve igual que antes
-  const conGc = primera.error ? null : await consulta(BASE + PEDIDOS + ", giftcard_id, giftcard_monto");
+  const conPagos = primera.error ? null : await consulta(BASE + PEDIDOS + ", giftcard_id, giftcard_monto, pagos");
+  const conGc = primera.error ? null : conPagos && !conPagos.error ? conPagos : await consulta(BASE + PEDIDOS + ", giftcard_id, giftcard_monto");
   const { data } = conGc && !conGc.error ? conGc : primera.error ? await consulta(BASE) : primera;
   const ventas = (data ?? []) as unknown as Venta[];
   const pendientes = ((pendientesQ.data ?? []) as unknown as Venta[]);
@@ -72,12 +73,14 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
   const tarjetaVendida = (v: Venta) => tarjetas?.find((g) => g.venta_id === v.id);
   const medioTexto = (v: Venta) => Number(v.giftcard_monto) > 0
     ? `Gift card ${pesos(Number(v.giftcard_monto))}${Number(v.total) > 0 ? ` + ${nombreMedio(v.medio_pago)}` : ""}`
+    : v.pagos?.length ? v.pagos.map((p) => `${nombreMedio(p.medio)} ${pesos(Number(p.monto))}`).join(" + ")
     : nombreMedio(v.medio_pago);
   const quien = (id?: string | null) => perfiles?.find((p) => p.usuario_id === id)?.nombre || "un colaborador";
   const validas = ventas.filter((v) => !v.anulada);
   const canjeado = validas.reduce((s, v) => s + Number(v.giftcard_monto ?? 0), 0);
   const total = validas.reduce((s, v) => s + Number(v.total), 0);
-  const porMedio = MEDIOS_CAJA.map((m) => ({ ...m, total: validas.filter((v) => v.medio_pago === m.id).reduce((s, v) => s + Number(v.total), 0), n: validas.filter((v) => v.medio_pago === m.id).length }));
+  const partes = validas.flatMap((v) => partesPago(v));
+  const porMedio = MEDIOS_CAJA.map((m) => ({ ...m, total: partes.filter((p) => p.medio === m.id).reduce((s, p) => s + p.monto, 0), n: partes.filter((p) => p.medio === m.id).length }));
   const nombreLocal = (id: number) => locales?.find((l) => l.id === id)?.nombre ?? `Local ${id}`;
   const url = (d: string, l: number | null) => `/ventas?dia=${d}${l ? `&local=${l}` : ""}`;
 

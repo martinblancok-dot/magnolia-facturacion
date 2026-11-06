@@ -137,6 +137,8 @@ export interface VentaParaSubir {
   /** Cambio: venta original y crédito por lo que se devolvió. */
   cambio_de?: string | null;
   credito_cambio?: number;
+  /** Pago dividido en dos medios (ej. parte en efectivo y el resto por transferencia). */
+  pagos?: Pago[] | null;
   /** Venta de una gift card nueva: se crea al subir la venta. */
   giftcard_nueva?: { id: string; monto: number; medio: MedioPago; destinatario?: string | null } | null;
   /** Pago con gift card: cuánto se descuenta de su saldo (no entra a la caja). */
@@ -184,6 +186,48 @@ export function armarVentaGiftcard(
     ...base, items: lineas, medio_pago: medio, total: c.falta,
     paga_con: medio === "efectivo" ? pagaCon : null, giftcard_id: gc.id, giftcard_monto: c.usa,
   };
+}
+
+// ---------- Pago dividido en dos medios ----------
+
+export interface Pago { medio: MedioPago; monto: number }
+
+/**
+ * Paga una parte con un medio y el resto con otro. Lo que cubre el primer monto va al precio del primer medio;
+ * lo que falta, al precio del segundo (ej. $50.000 en efectivo y el resto por transferencia con su descuento).
+ */
+export function cobroDividido(items: ItemCarrito[], primero: MedioPago, monto: number, resto: MedioPago, ext?: Extras) {
+  const precio1 = totales(items, primero, ext).total;
+  const usa = redondear(Math.min(Math.max(monto || 0, 0), precio1));
+  if (precio1 <= 0 || usa <= 0 || usa >= precio1 || primero === resto) return null;
+  const falta = Math.round(totales(items, resto, ext).total * (1 - usa / precio1));
+  const ajuste = redondear(falta - (precio1 - usa));
+  return { precio1, usa, falta, ajuste, total: redondear(usa + falta) };
+}
+
+export function armarVentaDividida(
+  items: ItemCarrito[], primero: MedioPago, monto: number, resto: MedioPago, local: number, terminal: string, pagaCon: number | null, id: string, ahora = new Date(), ext?: Extras,
+): VentaParaSubir | null {
+  const c = cobroDividido(items, primero, monto, resto, ext);
+  if (!c) return null;
+  const base = armarVenta(items, primero, local, terminal, null, id, ahora, ext);
+  const lineas = [...base.items];
+  if (c.ajuste !== 0) {
+    lineas.push({ producto_id: null, barcode: null, sku: null, nombre: `Diferencia de precio pagada con ${nombreMedio(resto)}`, cantidad: 1, precio_unitario: c.ajuste, total: c.ajuste, ajuste: true });
+  }
+  // El medio "principal" es el que no es efectivo: así el cruce con Mercado Pago lo encuentra
+  const principal = primero !== "efectivo" ? primero : resto;
+  return {
+    ...base, items: lineas, medio_pago: principal, total: c.total,
+    paga_con: primero === "efectivo" || resto === "efectivo" ? pagaCon : null,
+    pagos: [{ medio: primero, monto: c.usa }, { medio: resto, monto: c.falta }],
+  };
+}
+
+/** Las partes de una venta por medio de pago (una sola si no se dividió). */
+export function partesPago(v: { medio_pago: string; total: number | string; pagos?: { medio: string; monto: number | string }[] | null }): { medio: MedioPago; monto: number }[] {
+  if (Array.isArray(v.pagos) && v.pagos.length > 1) return v.pagos.map((p) => ({ medio: p.medio as MedioPago, monto: Number(p.monto) }));
+  return [{ medio: v.medio_pago as MedioPago, monto: Number(v.total) }];
 }
 
 // ---------- Cambios y devoluciones ----------
@@ -276,6 +320,14 @@ export function validarVenta(v: unknown): string | null {
   if (esCambio && gcMonto > 0) return "un cambio no se paga con gift card";
   if (x.medio_pago === "giftcard" && !(gcMonto > 0)) return "falta la gift card";
   if (x.medio_pago === "cambio" && (!esCambio || x.total !== 0)) return "cambio inválido";
+  if (x.pagos != null) {
+    const p = x.pagos;
+    const validos = MEDIOS_CAJA.map((m) => m.id as string);
+    if (!Array.isArray(p) || p.length !== 2 || p[0].medio === p[1].medio || !p.every((q) => validos.includes(q.medio) && Number(q.monto) > 0)) return "pago dividido inválido";
+    if (Math.abs(Number(p[0].monto) + Number(p[1].monto) - Number(x.total)) > 0.01) return "el pago dividido no suma el total";
+    if (!p.some((q) => q.medio === x.medio_pago)) return "pago dividido inválido";
+    if (gcMonto > 0 || esCambio || x.giftcard_nueva) return "el pago dividido no se combina con gift card ni cambio";
+  }
   let aFavor = 0;
   if (x.giftcard_nueva) {
     const g = x.giftcard_nueva;

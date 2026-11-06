@@ -1,6 +1,7 @@
 // Cálculo de reportes de ventas (puro: recibe ventas y datos de productos).
+import { partesPago } from "./caja";
 export interface ItemRep { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; total: number }
-export interface VentaRep { id: string; local_id: number; creada_en: string; medio_pago: string; total: number; giftcard_monto: number; items: ItemRep[] }
+export interface VentaRep { id: string; local_id: number; creada_en: string; medio_pago: string; total: number; giftcard_monto: number; pagos?: { medio: string; monto: number }[] | null; items: ItemRep[] }
 export interface ProductoRep { id: string; costo: number | null; categoria: string | null; proveedor: string | null }
 
 type Fila = { clave: string; ventas: number; unidades: number; ingreso: number; costo: number; sinCosto: number };
@@ -23,7 +24,7 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
 
   for (const v of ventas) {
     cobrado += Number(v.total);
-    porMedio.set(v.medio_pago, (porMedio.get(v.medio_pago) ?? 0) + Number(v.total));
+    for (const p of partesPago(v)) porMedio.set(p.medio, (porMedio.get(p.medio) ?? 0) + p.monto);
     giftcardsUsadas += Number(v.giftcard_monto) || 0;
     const prod = v.items.filter((i) => !esGiftcard(i) && (i.producto_id || Number(i.total) > 0 || Number(i.cantidad) < 0) && !(Number(i.cantidad) === 1 && !i.producto_id && Number(i.total) < 0));
     const bruto = prod.filter((i) => Number(i.cantidad) > 0).reduce((s, i) => s + Number(i.total), 0);
