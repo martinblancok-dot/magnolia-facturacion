@@ -1,9 +1,10 @@
 export const maxDuration = 120; // facturar muchos cobros juntos puede tardar
 import Link from "next/link";
-import { facturarAhora, marcarCobro, traerCobrosDesde } from "../../acciones";
+import { facturarAhora, traerCobrosDesde } from "../../acciones";
+import { ListaCobros, type FilaCobro } from "./lista";
 import { BotonAccion, Formulario } from "../../componentes";
 import { diaArgentina, restarDias } from "@/lib/fechas";
-import { fechaCorta, hora, ORIGENES, pesos } from "@/lib/formato";
+import { fechaCorta, pesos } from "@/lib/formato";
 import { clienteServidor, posiblesDuplicados } from "@/lib/supabase/almacen";
 import { soloDuenio } from "@/lib/supabase/sesion";
 
@@ -15,33 +16,6 @@ const PESTANAS = [
   { id: "ya_facturado", texto: "Ya facturados", ayuda: "Cobros de antes de que empezaras a usar el sistema que coinciden en importe exacto con una factura hecha a mano en ARCA (del mismo día hasta 45 días después). Si alguno no corresponde, tocá “No era esta”." },
   { id: "no_es_venta", texto: "No son venta", ayuda: "Se marcaron como que no hay que facturarlos." },
 ] as const;
-
-type Fila = {
-  id: string; dia: string; fecha_hora: string; importe: number; origen: string;
-  detalle: string | null; estado: string; mensaje: string | null;
-};
-
-function Acciones({ c }: { c: Fila }) {
-  return (
-    <div className="flex items-center justify-end gap-3">
-      {["revisar", "error", "no_es_venta"].includes(c.estado) && (
-        <form action={marcarCobro.bind(null, c.id, "a_facturar")}>
-          <button className="boton-borde !px-3 !py-1.5">{c.estado === "error" ? "Reintentar" : "Es venta"}</button>
-        </form>
-      )}
-      {c.estado === "ya_facturado" && (
-        <form action={marcarCobro.bind(null, c.id, c.origen === "posnet" || c.origen === "qr" ? "a_facturar" : "revisar")}>
-          <button className="py-1.5 text-sm text-suave underline">No era esta</button>
-        </form>
-      )}
-      {["revisar", "error", "a_facturar"].includes(c.estado) && (
-        <form action={marcarCobro.bind(null, c.id, "no_es_venta")}>
-          <button className="py-1.5 text-sm text-suave underline">No es venta</button>
-        </form>
-      )}
-    </div>
-  );
-}
 
 export default async function Cobros({ searchParams }: { searchParams: Promise<{ ver?: string }> }) {
   const u = await soloDuenio();
@@ -127,54 +101,9 @@ export default async function Cobros({ searchParams }: { searchParams: Promise<{
         </div>
         <div className="rounded-b-2xl border border-t-0 border-linea bg-white">
           <p className="px-4 pt-4 text-sm text-suave md:px-6">{pestana.ayuda}</p>
-          {(filas ?? []).length === 0 ? (
-            <p className="px-6 py-10 text-center text-suave">No hay cobros acá.</p>
-          ) : (
-            <>
-            <ul className="mt-2 divide-y divide-linea md:hidden">
-              {(filas as Fila[]).map((c) => (
-                <li key={c.id} className="px-4 py-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-base font-semibold">{pesos(Number(c.importe))}</span>
-                    <span className="text-sm text-suave">{fechaCorta(c.dia)} {hora(c.fecha_hora)}</span>
-                  </div>
-                  <p className="text-sm text-suave">{ORIGENES[c.origen] ?? c.origen}{c.detalle ? ` · ${c.detalle}` : ""}</p>
-                  {c.mensaje && <p className="mt-1 text-sm text-red-700">{c.mensaje}</p>}
-                  {["revisar", "error", "no_es_venta", "a_facturar", "ya_facturado"].includes(c.estado) && <div className="mt-2"><Acciones c={c} /></div>}
-                </li>
-              ))}
-            </ul>
-            <table className="mt-2 hidden w-full text-sm md:table">
-              <thead className="text-left text-suave">
-                <tr className="border-b border-linea">
-                  <th className="px-6 py-2 font-medium">Fecha</th>
-                  <th className="py-2 font-medium">Origen</th>
-                  <th className="py-2 font-medium">Detalle</th>
-                  <th className="py-2 text-right font-medium">Importe</th>
-                  <th className="px-6 py-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {(filas as Fila[]).map((c) => (
-                  <tr key={c.id} className="border-b border-linea last:border-0 align-top">
-                    <td className="px-6 py-3 whitespace-nowrap">{fechaCorta(c.dia)} <span className="text-suave">{hora(c.fecha_hora)}</span></td>
-                    <td className="py-3">{ORIGENES[c.origen] ?? c.origen}</td>
-                    <td className="py-3 text-suave">
-                      {c.detalle || "—"}
-                      {c.mensaje && <div className="mt-1 text-red-700">{c.mensaje}</div>}
-                    </td>
-                    <td className="py-3 text-right font-semibold whitespace-nowrap">{pesos(Number(c.importe))}</td>
-                    <td className="px-6 py-3">
-                      <Acciones c={c} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </>
-          )}
+          <ListaCobros key={pestana.id} pestana={pestana.id} filas={(filas ?? []) as FilaCobro[]} />
         </div>
-        {pestana.id === "error" && (filas ?? []).some((c) => (c as Fila).mensaje?.startsWith("[VERIFICAR")) && (
+        {pestana.id === "error" && (filas ?? []).some((c) => (c as FilaCobro).mensaje?.startsWith("[VERIFICAR")) && (
           <p className="mt-3 text-sm text-red-800">
             Los marcados “[VERIFICAR EN ARCA]” pueden haberse facturado igual. Antes de reintentar, fijate en
             “Comprobantes en línea → Consultas” si existe la factura.

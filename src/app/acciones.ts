@@ -181,6 +181,35 @@ export async function marcarCobro(id: string, nuevo: "a_facturar" | "no_es_venta
   revalidatePath("/cobros");
 }
 
+/** Marca varios cobros juntos (selección masiva en Cobros). Devuelve cuántos cambió. */
+export async function marcarCobros(ids: string[], nuevo: "a_facturar" | "no_es_venta" | "revisar"): Promise<{ ok: boolean; cambiados: number; texto?: string }> {
+  const u = await soloDuenio();
+  const lista = ids.filter((x) => /^[0-9a-f-]{36}$/i.test(x)).slice(0, 1000);
+  if (!lista.length) return { ok: true, cambiados: 0 };
+  const permitido: Record<string, string[]> = {
+    a_facturar: ["revisar", "error", "no_es_venta", "ya_facturado"],
+    no_es_venta: ["revisar", "error", "a_facturar"],
+    revisar: ["a_facturar", "no_es_venta", "ya_facturado"],
+  };
+  const db = clienteServidor();
+  let cambiados = 0;
+  for (let i = 0; i < lista.length; i += 200) {
+    const lote = lista.slice(i, i + 200);
+    const normales = permitido[nuevo].filter((e) => e !== "ya_facturado");
+    const a = await db.from("cobros").update({ estado: nuevo, mensaje: null }).eq("usuario_id", u.id).in("id", lote).in("estado", normales).select("id");
+    if (a.error) return { ok: false, cambiados, texto: a.error.message };
+    cambiados += a.data?.length ?? 0;
+    if (permitido[nuevo].includes("ya_facturado")) {
+      // Si sale de "ya facturado" es porque no era esa factura: se suelta y no se vuelve a cruzar.
+      const b = await db.from("cobros").update({ estado: nuevo, mensaje: null, comprobante_id: null, no_conciliar: true }).eq("usuario_id", u.id).in("id", lote).eq("estado", "ya_facturado").select("id");
+      if (b.error) return { ok: false, cambiados, texto: b.error.message };
+      cambiados += b.data?.length ?? 0;
+    }
+  }
+  revalidatePath("/cobros");
+  return { ok: true, cambiados };
+}
+
 export async function traerCobrosDesde(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
   const u = await soloDuenio();
   const db = clienteServidor();
