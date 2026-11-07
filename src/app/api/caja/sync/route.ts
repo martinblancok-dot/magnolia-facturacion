@@ -15,10 +15,21 @@ export async function POST(req: Request) {
 
   for (const t of (b?.turnos ?? []).slice(0, 50)) {
     if (!esId(t.id) || ![1, 2].includes(Number(t.local_id)) || !esFecha(t.abierta_en) || !(Number(t.fondo_inicial) >= 0)) continue;
-    const { error } = await db.from("turnos_caja").upsert({
+    const fila: Record<string, unknown> = {
       id: t.id, local_id: Number(t.local_id), terminal: String(t.terminal ?? "").slice(0, 40), abierta_en: t.abierta_en,
       abierta_por: u.id, fondo_inicial: Number(t.fondo_inicial),
-    }, { onConflict: "id", ignoreDuplicates: true });
+    };
+    const ap = t.apertura as Record<string, unknown> | null | undefined;
+    const apertura = ap && typeof ap === "object" ? {
+      billetes: Object.fromEntries(Object.entries((ap.billetes ?? {}) as Record<string, unknown>).filter(([k]) => /^\d+$/.test(k)).map(([k, v]) => [k, Math.max(0, Math.round(Number(v) || 0))])),
+      monedas: Number(ap.monedas) || 0,
+      esperado: ap.esperado === null || ap.esperado === undefined ? null : Number(ap.esperado),
+      diferencia: ap.diferencia === null || ap.diferencia === undefined ? null : Number(ap.diferencia),
+      nota: String(ap.nota ?? "").slice(0, 200) || null,
+    } : null;
+    let { error } = await db.from("turnos_caja").upsert(apertura ? { ...fila, apertura } : fila, { onConflict: "id", ignoreDuplicates: true });
+    // Sin la migración 0021 la columna no existe: se guarda igual, sin el conteo
+    if (error && apertura && /apertura/.test(error.message)) ({ error } = await db.from("turnos_caja").upsert(fila, { onConflict: "id", ignoreDuplicates: true }));
     if (!error) recibidos.push(String(t.id));
   }
   for (const m of (b?.movimientos ?? []).slice(0, 200)) {

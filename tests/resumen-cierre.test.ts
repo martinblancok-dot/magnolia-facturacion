@@ -8,7 +8,9 @@ describe("resumen del cierre", () => {
       resumen: { total: 150000, cantidad: 6, anuladas: 1, ticketPromedio: 25000, efectivoEsperado: 80000, retiros: 0, gastos: 5000, ingresos: 0,
         porMedio: { efectivo: { total: 65000, cantidad: 3 }, debito: { total: 85000, cantidad: 3 }, credito: { total: 0, cantidad: 0 } } },
       fondo: 20000, contado: 79000, diferencia: -1000, deja: 20000, sinCobro: 1, top: [{ nombre: "Taza", cantidad: 4 }],
+      apertura: { diferencia: -2000, nota: "se llevó cambio" },
     });
+    expect(t).toContain("Al abrir faltaban $2.000 respecto del cierre anterior (se llevó cambio)");
     expect(t).toContain("*Cierre Magnolia Home*");
     expect(t).toContain("09:00 a 20:30");
     expect(t).toContain("*Ventas: $150.000* (6, 1 anuladas)");

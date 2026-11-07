@@ -59,6 +59,10 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
         <h2 className="font-semibold">Arqueo de efectivo</h2>
         <ul className="mt-2 space-y-0.5 text-sm">
           {fila("Cambio inicial", pesos(Number(t.fondo_inicial)))}
+          {(() => {
+            const ap = (t as { apertura?: { diferencia: number | null; esperado: number | null; nota?: string | null } | null }).apertura;
+            return ap?.diferencia ? fila(`Al abrir ${ap.diferencia < 0 ? "faltaban" : "sobraban"} (se habían dejado ${pesos(Number(ap.esperado))})${ap.nota ? ` · ${ap.nota}` : ""}`, pesos(Math.abs(ap.diferencia))) : null;
+          })()}
           {fila("+ Ventas en efectivo", pesos(r.porMedio.efectivo.total))}
           {r.ingresos > 0 && fila("+ Ingresos", pesos(r.ingresos))}
           {r.retiros > 0 && fila("− Retiros", pesos(r.retiros))}

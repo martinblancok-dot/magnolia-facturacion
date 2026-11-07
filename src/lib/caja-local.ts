@@ -35,7 +35,8 @@ export const guardarVenta = (v: VentaParaSubir) => tx("pendientes", "readwrite",
 export const ventasPendientes = () => tx<VentaParaSubir[]>("pendientes", "readonly", (s) => s.getAll() as IDBRequest<VentaParaSubir[]>);
 export const borrarVenta = (id: string) => tx("pendientes", "readwrite", (s) => s.delete(id));
 
-export interface TurnoLocal { id: string; local_id: number; terminal: string; abierta_en: string; fondo_inicial: number }
+export interface Apertura { billetes: Record<string, number>; monedas: number; esperado: number | null; diferencia: number | null; nota?: string | null }
+export interface TurnoLocal { id: string; local_id: number; terminal: string; abierta_en: string; fondo_inicial: number; apertura?: Apertura | null }
 export interface MovimientoLocal { id: string; turno_id: string; tipo: "retiro" | "gasto" | "ingreso"; monto: number; motivo: string; creado_en: string }
 export type ItemOutbox = { id: string; clase: "turno"; datos: TurnoLocal } | { id: string; clase: "movimiento"; datos: MovimientoLocal };
 

@@ -1,6 +1,6 @@
 // Resumen del cierre por WhatsApp y mail.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { textoResumen } from "@/lib/resumen-cierre";
+import { textoResumen, type DatosResumen } from "@/lib/resumen-cierre";
 import { descifrar } from "@/lib/secretos";
 import { calcularCierre } from "./turnos";
 
@@ -30,6 +30,7 @@ export async function resumenDeCierre(db: SupabaseClient, turnoId: string) {
     contado: t.efectivo_contado === null ? null : Number(t.efectivo_contado), diferencia: t.diferencia === null ? null : Number(t.diferencia),
     deja: t.deja_en_caja === null ? null : Number(t.deja_en_caja), notas: t.notas,
     sinCobro: c.alertas.ventasSinCobro.length, cobrosSinVenta: c.alertas.cobrosSinVenta.length, top: c.top,
+    apertura: (t as { apertura?: DatosResumen["apertura"] }).apertura ?? null,
   });
   return { texto, asunto: `Cierre ${local?.nombre ?? ""} · $${Math.round(c.resumen.total).toLocaleString("es-AR")}` };
 }

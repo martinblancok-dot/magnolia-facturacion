@@ -8,10 +8,11 @@ import {
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
   armarVentaDividida, cobroDividido,
 } from "@/lib/caja";
-import { encolar, guardar, guardarVenta, leer, outbox, ventasPendientes, type TurnoLocal } from "@/lib/caja-local";
+import { encolar, guardar, guardarVenta, leer, outbox, ventasPendientes, type Apertura, type TurnoLocal } from "@/lib/caja-local";
+import { DENOMINACIONES, totalBilletes } from "@/lib/cierre";
 import { guardarTurno, subirTodo, turnoDeEstaCompu } from "@/lib/caja-sync";
 import { codigoVenta, type VentaImpresa } from "@/lib/impresion";
-import { useImpresion } from "../impreso";
+import { BotonTicketsCambio, useImpresion } from "../impreso";
 import type { DescuentoManual, Promo } from "@/lib/promos";
 
 const pesos = (n: number) =>
@@ -69,6 +70,10 @@ export function Caja() {
   const [buscandoTurno, setBuscandoTurno] = useState(true);
   // Al abrir: de qué local, y si ya hay una caja abierta ahí (otra compu) para sumarse
   const [localApertura, setLocalApertura] = useState<number | null>(null);
+  // Conteo de billetes al abrir la caja
+  const [billetesAp, setBilletesAp] = useState<Record<string, string>>({});
+  const [monedasAp, setMonedasAp] = useState("");
+  const [notaAp, setNotaAp] = useState("");
   const [cajasAbiertas, setCajasAbiertas] = useState<Record<number, { abierto: TurnoLocal | null; ultimoDeja: number | null } | null>>({});
   const [movForm, setMovForm] = useState(false);
   const [ultima, setUltima] = useState<VentaImpresa | null>(null);
@@ -284,14 +289,15 @@ export function Caja() {
     setTimeout(() => entrada.current?.focus(), 50);
   };
 
-  const abrirCaja = async (local: number, fondo: number) => {
+  const abrirCaja = async (local: number, fondo: number, apertura: Apertura | null = null) => {
     setLocal(local);
     try { localStorage.setItem("magnolia-local", String(local)); } catch {}
-    const t: TurnoLocal = { id: crypto.randomUUID(), local_id: local, terminal: idTerminal(), abierta_en: new Date().toISOString(), fondo_inicial: fondo };
+    const t: TurnoLocal = { id: crypto.randomUUID(), local_id: local, terminal: idTerminal(), abierta_en: new Date().toISOString(), fondo_inicial: fondo, apertura };
     await encolar({ id: t.id, clase: "turno", datos: t });
     guardarTurno(t);
     setTurno(t);
-    setAviso({ ok: true, texto: `Caja abierta con ${pesos(fondo)} de cambio.` });
+    setAviso({ ok: true, texto: `Caja abierta con ${pesos(fondo)} de cambio.${apertura?.diferencia ? ` Quedó anotado que ${apertura.diferencia < 0 ? "faltaban" : "sobraban"} ${pesos(Math.abs(apertura.diferencia))}.` : ""}` });
+    setBilletesAp({}); setMonedasAp(""); setNotaAp("");
     subir();
     setTimeout(() => entrada.current?.focus(), 50);
   };
@@ -560,6 +566,10 @@ export function Caja() {
     const elegido = localApertura;
     const info = elegido ? cajasAbiertas[elegido] : undefined;
     const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    const contadoAp = totalBilletes(Object.fromEntries(Object.entries(billetesAp).map(([k, v]) => [k, Number(v) || 0])), Number(monedasAp.replace(",", ".")) || 0);
+    const hayConteoAp = Object.values(billetesAp).some((v) => v !== "") || monedasAp !== "";
+    const esperadoAp = info?.ultimoDeja ?? null;
+    const difAp = esperadoAp !== null ? Math.round((contadoAp - esperadoAp) * 100) / 100 : null;
     return (
       <main className="mx-auto mt-12 max-w-lg px-6 pb-10">
         <h1 className="text-2xl font-semibold">Abrir caja</h1>
@@ -591,15 +601,48 @@ export function Caja() {
             ) : elegido ? (
               <form className="tarjeta mt-5 space-y-4" onSubmit={(e) => {
                 e.preventDefault();
-                const n = Number(String(new FormData(e.currentTarget).get("fondo")).replace(/\./g, "").replace(",", "."));
-                if (n >= 0) abrirCaja(elegido, n);
+                abrirCaja(elegido, contadoAp, {
+                  billetes: Object.fromEntries(Object.entries(billetesAp).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => Number(v) > 0)),
+                  monedas: Number(monedasAp.replace(",", ".")) || 0, esperado: esperadoAp, diferencia: difAp, nota: notaAp.trim() || null,
+                });
               }}>
-                <label className="block">
-                  <span className="etiqueta">Efectivo de cambio con el que arranca la caja</span>
-                  <input key={elegido} name="fondo" className="campo !text-lg" inputMode="decimal" autoFocus required defaultValue={info?.ultimoDeja ?? ""} placeholder="0" />
-                  {info?.ultimoDeja != null && <span className="ayuda block">En el último cierre se dejaron {pesos(info.ultimoDeja)}.</span>}
-                </label>
-                <button className="boton w-full justify-center !py-3 text-base">Abrir caja en {locales.find((l) => l.id === elegido)?.nombre}</button>
+                <div>
+                  <p className="etiqueta">Contá el efectivo de cambio con el que arranca la caja (cantidad de billetes)</p>
+                  <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {DENOMINACIONES.map((d) => (
+                      <label key={d}><span className="text-xs text-suave">${d.toLocaleString("es-AR")}</span>
+                        <input className="campo !py-1.5" inputMode="numeric" value={billetesAp[d] ?? ""} placeholder="0" autoFocus={d === DENOMINACIONES[0]}
+                          onChange={(e) => setBilletesAp((b) => ({ ...b, [d]: e.target.value.replace(/\D/g, "") }))} />
+                      </label>
+                    ))}
+                    <label><span className="text-xs text-suave">Monedas ($)</span>
+                      <input className="campo !py-1.5" inputMode="decimal" value={monedasAp} placeholder="0" onChange={(e) => setMonedasAp(e.target.value)} /></label>
+                  </div>
+                </div>
+                <div className="space-y-1 rounded-xl bg-fondo p-3">
+                  <p className="flex justify-between text-lg"><span>Hay en la caja</span><b className="tabular-nums">{pesos(contadoAp)}</b></p>
+                  {esperadoAp !== null ? (
+                    <>
+                      <p className="flex justify-between text-sm text-suave"><span>Se dejó en el último cierre</span><span className="tabular-nums">{pesos(esperadoAp)}</span></p>
+                      {hayConteoAp && (
+                        <p className={`flex justify-between font-semibold ${difAp === 0 ? "text-green-800" : "text-red-700"}`}>
+                          <span>{difAp === 0 ? "✓ Coincide" : difAp! < 0 ? "⚠ Falta" : "⚠ Sobra"}</span><span className="tabular-nums">{difAp ? pesos(Math.abs(difAp)) : ""}</span>
+                        </p>
+                      )}
+                    </>
+                  ) : <p className="text-xs text-suave">{info === null ? "Sin internet no se puede comparar con el último cierre." : "No hay un cierre anterior para comparar."}</p>}
+                </div>
+                {hayConteoAp && difAp !== null && difAp !== 0 && (
+                  <label className="block rounded-xl border border-red-200 bg-red-50 p-3">
+                    <span className="text-sm font-semibold text-red-800">No coincide con lo que se dejó en el último cierre. Volvé a contar; si está bien, anotá qué pasó:</span>
+                    <input className="campo mt-2" value={notaAp} onChange={(e) => setNotaAp(e.target.value)} placeholder="Ej: Sofi se llevó $10.000 para cambio" />
+                    <span className="ayuda block">Les llega en el resumen del cierre.</span>
+                  </label>
+                )}
+                <button className="boton w-full justify-center !py-3 text-base" disabled={!hayConteoAp}>
+                  {!hayConteoAp ? "Contá los billetes para abrir" : difAp ? `Abrir con diferencia de ${pesos(Math.abs(difAp))}` : `Abrir caja en ${locales.find((l) => l.id === elegido)?.nombre}`}
+                </button>
+                {hayConteoAp === false && <button type="button" className="w-full text-center text-xs text-suave underline" onClick={() => setMonedasAp("0")}>La caja arranca vacía ($0)</button>}
                 {info === null && <p className="text-sm text-amber-800">Sin internet no se puede ver si otra compu ya abrió la caja de este local. Si es así, mejor esperá a tener conexión y sumate a esa.</p>}
               </form>
             ) : null}
@@ -920,7 +963,7 @@ export function Caja() {
                     ? <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>Imprimir gift card</button>
                     : <>
                         <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
-                        <button className="rounded-lg border border-green-300 bg-white px-2 py-1 text-xs font-semibold" onClick={() => { imprimir(ultima, "cambio"); volverAlLector(); }}>Ticket de cambio</button>
+                        <BotonTicketsCambio chico onImprimir={(n) => { imprimir(ultima, "cambio", n); volverAlLector(); }} />
                       </>}
                   <button aria-label="Cerrar" className="px-1 text-lg leading-none text-green-900/60 hover:text-green-900" onClick={() => setUltima(null)}>×</button>
                 </span>
@@ -1121,9 +1164,9 @@ export function Caja() {
                 {ultima.giftcard_nueva && (
                   <button className="boton w-full justify-center" onClick={() => { imprimir(ultima, "giftcard"); volverAlLector(); }}>🎁 Imprimir gift card</button>
                 )}
-                <div className="grid grid-cols-2 gap-2">
-                  <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
-                  {!ultima.giftcard_nueva && <button className="boton-borde justify-center" onClick={() => { imprimir(ultima, "cambio"); volverAlLector(); }}>Ticket de cambio</button>}
+                <div className="flex flex-wrap gap-2">
+                  <button className="boton-borde flex-1 justify-center" onClick={() => { imprimir(ultima, "recibo"); volverAlLector(); }}>Recibo X</button>
+                  {!ultima.giftcard_nueva && <BotonTicketsCambio onImprimir={(n) => { imprimir(ultima, "cambio", n); volverAlLector(); }} />}
                 </div>
                 <label className="flex items-center justify-between gap-2 text-xs text-suave">Papel de la impresora
                   <select value={papel} onChange={(e) => setPapel(e.target.value as "80" | "58" | "a4")} className="rounded border border-linea bg-white px-1 py-0.5">

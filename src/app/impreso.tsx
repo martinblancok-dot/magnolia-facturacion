@@ -129,7 +129,7 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
 
 /** Imprime un recibo o ticket. Se dibuja en una zona que solo aparece al imprimir. */
 export function useImpresion() {
-  const [trabajo, setTrabajo] = useState<{ venta: VentaImpresa; tipo: TipoImpreso; n: number } | null>(null);
+  const [trabajo, setTrabajo] = useState<{ venta: VentaImpresa; tipo: TipoImpreso; n: number; copias: number } | null>(null);
   const [papel, setPapelState] = useState<Papel>(() => {
     if (typeof window === "undefined") return "58";
     try { return (localStorage.getItem("magnolia-papel") as Papel) || "58"; } catch { return "58"; }
@@ -142,11 +142,26 @@ export function useImpresion() {
     return () => { clearTimeout(t); window.removeEventListener("afterprint", limpiar); };
   }, [trabajo]);
   const setPapel = (p: Papel) => { setPapelState(p); try { localStorage.setItem("magnolia-papel", p); } catch {} };
-  const imprimir = (venta: VentaImpresa, tipo: TipoImpreso) => setTrabajo({ venta, tipo, n: Date.now() });
+  const imprimir = (venta: VentaImpresa, tipo: TipoImpreso, copias = 1) => setTrabajo({ venta, tipo, n: Date.now(), copias: Math.max(1, Math.min(20, Math.round(copias))) });
   const zona = trabajo ? (
     <div id="zona-impresion" data-papel={papel} key={trabajo.n}>
-      <Impreso venta={trabajo.venta} tipo={trabajo.tipo} />
+      {Array.from({ length: trabajo.copias }, (_, i) => <div key={i} className="copia"><Impreso venta={trabajo.venta} tipo={trabajo.tipo} /></div>)}
     </div>
   ) : null;
   return { imprimir, zona, papel, setPapel };
+}
+
+/** Botón "Ticket de cambio" con cantidad (para varios regalos de una misma compra). */
+export function BotonTicketsCambio({ onImprimir, chico = false }: { onImprimir: (copias: number) => void; chico?: boolean }) {
+  const [n, setN] = useState(1);
+  const paso = chico ? "px-1.5 py-1 text-xs" : "px-2.5 py-2";
+  return (
+    <span className={`inline-flex items-stretch overflow-hidden rounded-lg border ${chico ? "border-green-300 bg-white" : "border-marca"}`}>
+      <button type="button" className={`${chico ? "px-2 py-1 text-xs" : "flex-1 px-3 py-2"} font-semibold ${chico ? "" : "text-marca"}`} onClick={() => onImprimir(n)}>
+        {n > 1 ? `${n} tickets de cambio` : "Ticket de cambio"}
+      </button>
+      <button type="button" aria-label="Menos tickets" className={`border-l ${chico ? "border-green-300" : "border-marca/40"} ${paso}`} disabled={n <= 1} onClick={() => setN(n - 1)}>−</button>
+      <button type="button" aria-label="Más tickets" className={`border-l ${chico ? "border-green-300" : "border-marca/40"} ${paso}`} disabled={n >= 20} onClick={() => setN(n + 1)}>+</button>
+    </span>
+  );
 }

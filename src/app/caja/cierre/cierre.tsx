@@ -98,6 +98,10 @@ export function CierreCaja() {
         <Link href="/caja" className="text-sm text-suave underline">← Caja</Link>
       </div>
       <p className="text-suave">Abierta a las {hora(turno.abierta_en)} con {pesos(Number(turno.fondo_inicial))} de cambio.</p>
+      {(() => {
+        const ap = (turno as { apertura?: { diferencia: number | null; nota?: string | null } | null }).apertura;
+        return ap?.diferencia ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">⚠ Al abrir {ap.diferencia < 0 ? "faltaban" : "sobraban"} {pesos(Math.abs(ap.diferencia))} respecto del cierre anterior{ap.nota ? ` (${ap.nota})` : ""}.</p> : null;
+      })()}
 
       {otras.length > 0 && fase !== "cerrada" && (
         <section className={`tarjeta ${otrasConPendientes.length ? "border-red-300 bg-red-50" : ""}`}>

@@ -1,5 +1,5 @@
 "use client";
-import { useImpresion } from "../../impreso";
+import { BotonTicketsCambio, useImpresion } from "../../impreso";
 import type { VentaImpresa } from "@/lib/impresion";
 
 export function Reimprimir({ venta }: { venta: VentaImpresa }) {
@@ -10,7 +10,7 @@ export function Reimprimir({ venta }: { venta: VentaImpresa }) {
       <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "recibo")}>Recibo X</button>
       {venta.giftcard_nueva
         ? <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "giftcard")}>Gift card</button>
-        : <button type="button" className="boton-borde !px-3 !py-1.5 text-sm" onClick={() => imprimir(venta, "cambio")}>Ticket de cambio</button>}
+        : <span className="text-sm"><BotonTicketsCambio chico onImprimir={(n) => imprimir(venta, "cambio", n)} /></span>}
     </>
   );
 }
