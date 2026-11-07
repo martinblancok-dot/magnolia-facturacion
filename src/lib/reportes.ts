@@ -14,12 +14,25 @@ export function horaAR(iso: string) {
   return { hora: d.getUTCHours(), dia: d.getUTCDay(), fecha: d.toISOString().slice(0, 10) };
 }
 
-export function calcularReporte(ventas: VentaRep[], productos: Map<string, ProductoRep>) {
+/** Lo que se pierde por cobrar con cada medio (comisiones, IVA, retenciones…), en %. Ej: { cuotas: 20.3 } */
+export type Cargos = Partial<Record<string, number>>;
+export const CARGOS_INICIALES: Cargos = { cuotas: 20.3 };
+
+/** % que se pierde en una venta según cómo se pagó (si se dividió, ponderado por cada parte). */
+export function tasaCargos(v: VentaRep, cargos: Cargos): number {
+  const total = Number(v.total);
+  if (!(total > 0)) return 0;
+  const perdido = partesPago(v).reduce((s, p) => s + p.monto * ((cargos[p.medio] ?? 0) / 100), 0);
+  return Math.min(1, Math.max(0, perdido / total));
+}
+
+export function calcularReporte(ventas: VentaRep[], productos: Map<string, ProductoRep>, cargos: Cargos = {}) {
   const porMedio = new Map<string, number>();
   const porLocal = new Map<number, { ventas: number; cobrado: number; ingreso: number }>();
   const porCategoria = new Map<string, Fila>(), porProveedor = new Map<string, Fila>(), porProducto = new Map<string, Fila & { nombre: string; sku: string | null }>();
   const porHora = Array(24).fill(0) as number[], porDia = Array(7).fill(0) as number[];
   const porFecha = new Map<string, number>();
+  let comisiones = 0;
   let cobrado = 0, ingreso = 0, costo = 0, unidades = 0, conProductos = 0, giftcardsVendidas = 0, giftcardsUsadas = 0, devoluciones = 0, sinCostoIngreso = 0;
 
   for (const v of ventas) {
@@ -32,6 +45,7 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
     const factor = bruto > 0 ? (bruto + ajustes) / bruto : 1;
     giftcardsVendidas += v.items.filter(esGiftcard).reduce((s, i) => s + Number(i.total), 0);
     const { hora, dia, fecha } = horaAR(v.creada_en);
+    const tasa = tasaCargos(v, cargos);
     let ingresoVenta = 0;
     for (const i of prod) {
       if (i.nombre.startsWith("Diferencia de precio")) continue;
@@ -39,7 +53,11 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
       const plata = Number(i.total) * (cant > 0 ? factor : 1);
       const p = i.producto_id ? productos.get(i.producto_id) : undefined;
       // costo de ese momento si se sabe (ventas de Aronium); si no, el costo actual del producto
-      const c = i.costo != null ? Number(i.costo) * cant : p?.costo != null ? Number(p.costo) * cant : null;
+      const cm = i.costo != null ? Number(i.costo) * cant : p?.costo != null ? Number(p.costo) * cant : null;
+      // al costo de la mercadería se le suma lo que se pierde por el medio de pago (cuotas, comisiones…)
+      const cargo = cm === null ? 0 : plata * tasa;
+      comisiones += cargo;
+      const c = cm === null ? null : cm + cargo;
       ingresoVenta += plata; unidades += cant;
       if (cant < 0) devoluciones += -plata;
       if (c === null) sinCostoIngreso += plata; else costo += c;
@@ -67,7 +85,7 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
   const ganancia = ingreso - sinCostoIngreso - costo;
   const orden = (m: Map<string, Fila>) => [...m.values()].sort((a, b) => b.ingreso - a.ingreso);
   return {
-    ventas: ventas.length, conProductos, cobrado, ingreso, costo, ganancia, unidades, devoluciones, giftcardsVendidas, giftcardsUsadas,
+    ventas: ventas.length, conProductos, cobrado, ingreso, costo, ganancia, comisiones, unidades, devoluciones, giftcardsVendidas, giftcardsUsadas,
     sinCostoIngreso, margen: ingreso - sinCostoIngreso > 0 ? ganancia / (ingreso - sinCostoIngreso) : 0,
     ticketPromedio: conProductos ? ingreso / conProductos : 0,
     porMedio: [...porMedio.entries()].sort((a, b) => b[1] - a[1]),

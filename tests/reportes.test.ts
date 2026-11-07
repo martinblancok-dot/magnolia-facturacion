@@ -31,3 +31,18 @@ describe("reportes", () => {
     expect(r.ticketPromedio).toBe(9000);
   });
 });
+
+describe("costos por medio de pago", () => {
+  it("descuenta 20,3% de lo cobrado en cuotas de la ganancia", async () => {
+    const { calcularReporte } = await import("@/lib/reportes");
+    const v = { id: "v", local_id: 1, creada_en: "2026-11-07T15:00:00Z", medio_pago: "cuotas", total: 100000, giftcard_monto: 0,
+      items: [{ producto_id: null, sku: "A", nombre: "Mochila", cantidad: 1, total: 100000, costo: 50000 }] };
+    expect(calcularReporte([v], new Map()).ganancia).toBe(50000);
+    const r = calcularReporte([v], new Map(), { cuotas: 20.3 });
+    expect(Math.round(r.comisiones)).toBe(20300);
+    expect(Math.round(r.ganancia)).toBe(29700);
+    // pago dividido: solo la parte en cuotas paga el cargo
+    const d = calcularReporte([{ ...v, medio_pago: "cuotas", pagos: [{ medio: "efectivo", monto: 50000 }, { medio: "cuotas", monto: 50000 }] }], new Map(), { cuotas: 20.3 });
+    expect(Math.round(d.comisiones)).toBe(10150);
+  });
+});

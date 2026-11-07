@@ -3,6 +3,7 @@ import { nombreMedio } from "@/lib/caja";
 import { pesos } from "@/lib/formato";
 import { calcularReporte, type ProductoRep, type VentaRep } from "@/lib/reportes";
 import { clienteServidor } from "@/lib/supabase/almacen";
+import { leerCargos } from "@/lib/supabase/cargos";
 import { soloDuenio } from "@/lib/supabase/sesion";
 
 const DIAS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -81,8 +82,9 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
     const { data } = await db.from("productos").select("id, costo, categoria, proveedor, hoja").in("id", ids.slice(i, i + 200));
     for (const p of data ?? []) productos.set(p.id, { id: p.id, costo: p.costo === null ? null : Number(p.costo), categoria: p.categoria, proveedor: p.hoja ?? p.proveedor });
   }
-  const r = calcularReporte(ventas, productos);
-  const a = calcularReporte(anteriores, productos);
+  const cargos = await leerCargos(db);
+  const r = calcularReporte(ventas, productos, cargos);
+  const a = calcularReporte(anteriores, productos, cargos);
   const cambio = (x: number, y: number) => (y > 0 ? Math.round(((x - y) / y) * 100) : null);
   const flecha = (x: number, y: number) => {
     const c = cambio(x, y);
@@ -127,7 +129,7 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="tarjeta !p-4"><p className="text-sm text-suave">Vendido en productos</p><p className="text-2xl font-semibold">{pesos(r.ingreso)}</p>{flecha(r.ingreso, a.ingreso)}</div>
         <div className="tarjeta !p-4"><p className="text-sm text-suave">Ganancia estimada</p><p className="text-2xl font-semibold">{pesos(r.ganancia)}</p>
-          <p className="text-xs text-suave">margen {pct(r.margen)} sobre el costo cargado{r.sinCostoIngreso > 0 ? ` · ${pesos(r.sinCostoIngreso)} vendidos sin costo cargado` : ""}</p></div>
+          <p className="text-xs text-suave">margen {pct(r.margen)} · ya descuenta {pesos(r.comisiones)} de costos de cobro (<Link href="/configuracion/cargos" className="underline">cuotas, comisiones</Link>){r.sinCostoIngreso > 0 ? ` · ${pesos(r.sinCostoIngreso)} vendidos sin costo cargado` : ""}</p></div>
         <div className="tarjeta !p-4"><p className="text-sm text-suave">Ventas</p><p className="text-2xl font-semibold">{r.conProductos}</p>{flecha(r.conProductos, a.conProductos)}<p className="text-xs text-suave">{r.unidades} unidades</p></div>
         <div className="tarjeta !p-4"><p className="text-sm text-suave">Ticket promedio</p><p className="text-2xl font-semibold">{pesos(r.ticketPromedio)}</p>{flecha(r.ticketPromedio, a.ticketPromedio)}</div>
       </div>
@@ -210,7 +212,7 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
           </tbody>
         </table>
       </section>
-      <p className="text-xs text-suave">La ganancia se calcula con el costo actual de cada producto (el de Precios Deco), descontando promos y descuentos. Los productos sin costo cargado no suman ganancia.</p>
+      <p className="text-xs text-suave">La ganancia se calcula con el costo de cada producto (el de Precios Deco; en las ventas de Aronium, el costo de ese momento), descontando promos, descuentos y lo que se pierde por cada medio de pago (configurable). Los productos sin costo cargado no suman ganancia.</p>
     </div>
   );
 }

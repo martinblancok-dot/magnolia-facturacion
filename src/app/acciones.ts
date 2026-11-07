@@ -733,3 +733,21 @@ export async function quitarCodigo(productoId: string, codigo: string): Promise<
   revalidatePath(`/productos/${productoId}`);
   return { ok: true, texto: "Código quitado." };
 }
+
+// ---------- Costos por medio de pago (para la ganancia de Reportes) ----------
+
+export async function guardarCargos(cargos: Record<string, string>): Promise<Mensaje> {
+  await soloDuenio();
+  const valor: Record<string, number> = {};
+  for (const [m, v] of Object.entries(cargos)) {
+    if (!/^[a-z]+$/.test(m)) continue;
+    const n = Number(String(v).replace(",", ".").replace("%", "").trim() || 0);
+    if (isNaN(n) || n < 0 || n >= 100) return { ok: false, texto: `El porcentaje de ${m} no es válido.` };
+    if (n > 0) valor[m] = Math.round(n * 100) / 100;
+  }
+  const { error } = await clienteServidor().from("ajustes").upsert({ clave: "cargos_medios", valor: JSON.stringify(valor), actualizado_en: new Date().toISOString() });
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/reportes");
+  revalidatePath("/configuracion/cargos");
+  return { ok: true, texto: "Guardado. Reportes ya calcula la ganancia con estos porcentajes." };
+}
