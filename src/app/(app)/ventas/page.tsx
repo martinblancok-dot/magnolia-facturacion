@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { anularVenta, pedirAnulacion, rechazarAnulacion } from "../../acciones";
 import { BotonAccion, Formulario } from "../../componentes";
-import { MEDIOS_CAJA, partesPago, nombreMedio } from "@/lib/caja";
+import { MEDIOS_CAJA, claveCodigo, partesPago, nombreMedio } from "@/lib/caja";
 import { diaArgentina, restarDias } from "@/lib/fechas";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -33,20 +33,48 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
   const siguiente = restarDias(dia, -1);
 
   const buscado = sp.codigo?.trim() ?? "";
-  const rango = buscado ? rangoCodigo(buscado) : null;
+  let rango = buscado ? rangoCodigo(buscado) : null;
+  // Si no es un código de ticket, se busca por producto: nombre, SKU o código de barras (interno u original)
+  let producto: { texto: string; ids: string[] } | null = null;
+  const comillas = (x: string) => `"${x.replace(/"/g, "")}"`;
+  const armarBusquedaProducto = async () => {
+    const t = buscado.replace(/[%,()*\\]/g, " ").trim();
+    if (t.length < 2) return null;
+    const ids = new Set<string>();
+    const [p, alt] = await Promise.all([
+      db.from("productos").select("id").or(`barcode.eq.${comillas(t)},sku.ilike.${comillas(t)}`).limit(20),
+      db.from("producto_codigos").select("producto_id").eq("clave", claveCodigo(t)).limit(5),
+    ]);
+    for (const x of p.data ?? []) ids.add(x.id);
+    for (const x of alt.error ? [] : alt.data ?? []) ids.add(x.producto_id);
+    return { texto: t, ids: [...ids] };
+  };
+  if (rango) {
+    // parece un código de ticket; si no hay ninguna venta con ese código, se busca como producto (ej. un SKU de 8 cifras)
+    const { count } = await db.from("ventas").select("id", { count: "exact", head: true }).gte("id", rango[0]).lte("id", rango[1]);
+    if (!count) rango = null;
+  }
+  if (buscado && !rango) producto = await armarBusquedaProducto();
   // Colaboradores: solo ven su caja abierta (la que abrieron o en la que trabaja su compu), en tiempo real
   let misTurnos: { id: string; local_id: number; abierta_en: string }[] | null = null;
-  if (!duenio && !rango) {
+  if (!duenio && !rango) { // (también al buscar por producto: el colaborador busca solo en su caja)
     const { data: compus } = await db.from("terminales").select("turno_id").eq("usuario_id", u.id).gte("visto_en", hace(16)).not("turno_id", "is", null);
     const ids = [...new Set((compus ?? []).map((t) => t.turno_id as string))];
     const { data: abiertos } = await db.from("turnos_caja").select("id, local_id, abierta_en, abierta_por").is("cerrada_en", null);
     misTurnos = (abiertos ?? []).filter((t) => ids.includes(t.id) || t.abierta_por === u.id);
   }
-  const BASE = "id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, terminal, venta_items(n, nombre, sku, cantidad, precio_unitario, total)";
+  // Con búsqueda por producto se pide además "coincide": los renglones que coinciden (filtra las ventas)
+  const BASE = "id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, terminal, venta_items(n, nombre, sku, cantidad, precio_unitario, total)"
+    + (producto ? ", coincide:venta_items!inner(n)" : "");
   const PEDIDOS = ", anulacion_pedida_por, anulacion_pedida_en, anulacion_motivo, anulacion_rechazada_en";
   const consulta = (cols: string) => {
-    let q = db.from("ventas").select(cols).order("creada_en", { ascending: false }).limit(1000);
+    let q = db.from("ventas").select(cols).order("creada_en", { ascending: false }).limit(producto ? 100 : 1000);
     if (rango) q = q.gte("id", rango[0]).lte("id", rango[1]);
+    else if (producto) {
+      const nombre = `nombre.ilike.%${producto.texto.split(/\s+/).join("%")}%`;
+      q = q.or([nombre, `sku.ilike.${comillas(producto.texto)}`, `barcode.eq.${comillas(producto.texto)}`, ...(producto.ids.length ? [`producto_id.in.(${producto.ids.join(",")})`] : [])].join(","), { referencedTable: "coincide" });
+      if (misTurnos) q = q.in("turno_id", misTurnos.length ? misTurnos.map((t) => t.id) : ["00000000-0000-0000-0000-000000000000"]);
+    }
     else if (misTurnos) q = q.in("turno_id", misTurnos.length ? misTurnos.map((t) => t.id) : ["00000000-0000-0000-0000-000000000000"]);
     else q = q.gte("creada_en", `${dia}T00:00:00-03:00`).lt("creada_en", `${siguiente}T00:00:00-03:00`);
     if (local && !rango && !misTurnos) q = q.eq("local_id", local);
@@ -63,6 +91,8 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
   const conGc = primera.error ? null : conPagos && !conPagos.error ? conPagos : await consulta(BASE + PEDIDOS + ", giftcard_id, giftcard_monto");
   const { data } = conGc && !conGc.error ? conGc : primera.error ? await consulta(BASE) : primera;
   const ventas = (data ?? []) as unknown as Venta[];
+  const palabras = producto ? producto.texto.toLowerCase().split(/\s+/) : [];
+  const coincide = (i: { nombre: string; sku: string | null }) => !!producto && (palabras.every((w) => i.nombre.toLowerCase().includes(w)) || i.sku?.toLowerCase() === producto.texto.toLowerCase());
   const pendientes = ((pendientesQ.data ?? []) as unknown as Venta[]);
   const conTarjeta = ventas.filter((v) => Number(v.giftcard_monto) > 0 || v.venta_items.some((i) => i.nombre.startsWith("Gift card ")));
   const { data: tarjetas } = conTarjeta.length
@@ -126,13 +156,15 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
       )}
 
       <form action="/ventas" className="flex gap-2">
-        <input name="codigo" defaultValue={buscado} inputMode="text" autoComplete="off" placeholder="Escaneá o escribí el código del ticket"
-          className="w-full rounded-lg border border-linea bg-white px-3 py-2 uppercase" />
+        <input name="codigo" defaultValue={buscado} inputMode="text" autoComplete="off" placeholder="Código del ticket, o un producto (nombre, SKU o código de barras)"
+          className="w-full rounded-lg border border-linea bg-white px-3 py-2" />
         <button className="boton !px-4">Buscar</button>
       </form>
       {buscado && (
-        <div className={`rounded-lg px-3 py-2 text-sm ${rango && ventas.length ? "bg-green-50 text-green-900" : "bg-red-50 text-red-800"}`}>
-          {!rango ? "El código del ticket tiene 8 letras y números (por ejemplo 3F9A0C21)." :
+        <div className={`rounded-lg px-3 py-2 text-sm ${(rango || producto) && ventas.length ? "bg-green-50 text-green-900" : "bg-red-50 text-red-800"}`}>
+          {producto ? (ventas.length === 0 ? `No encontré ventas con "${buscado}"${misTurnos ? " en tu caja" : ""}.` :
+              `${ventas.length === 100 ? "Las últimas 100 ventas" : `${ventas.length} venta${ventas.length === 1 ? "" : "s"}`} con "${buscado}"${misTurnos ? " en tu caja" : local ? ` en ${nombreLocal(local)}` : ""}. Lo que coincide está resaltado.`) :
+            !rango ? "Escribí al menos 2 letras del producto, o el código del ticket (8 letras y números, por ejemplo 3F9A0C21)." :
             ventas.length === 0 ? `No encontré ninguna venta con el código ${buscado.toUpperCase()}.` :
             `Venta ${buscado.toUpperCase()} encontrada.`} <Link href="/ventas" className="underline">{duenio ? "Volver al día" : "Volver a tu caja"}</Link>
         </div>
@@ -170,7 +202,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
           <ul className="divide-y divide-linea">
             {ventas.map((v) => (
               <li key={v.id} className={`px-4 py-3 md:px-6 ${v.anulada ? "opacity-50" : ""}`}>
-                <details open={!!buscado}>
+                <details open={!!rango}>
                   <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
                     <span>
                       <b>#{v.numero}</b> · {buscado ? `${new Date(v.creada_en).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })} ` : ""}{hora(v.creada_en)} · {nombreLocal(v.local_id)} {v.terminal?.startsWith("Aronium") ? <span className="rounded bg-gray-100 px-1.5 text-xs text-suave">{v.terminal}</span> : <span className="font-mono text-xs text-suave">{codigoVenta(v.id)}</span>}
@@ -184,7 +216,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                   </summary>
                   <ul className="mt-2 space-y-1 text-sm">
                     {v.venta_items.sort((a, b) => a.n - b.n).map((i) => (
-                      <li key={i.n} className="flex justify-between gap-3">
+                      <li key={i.n} className={`flex justify-between gap-3 ${producto && coincide(i) ? "-mx-1 rounded bg-amber-100 px-1 font-semibold" : ""}`}>
                         <span>{Number(i.cantidad)} × {i.nombre} <span className="text-suave">({pesos(Number(i.precio_unitario))})</span></span>
                         <span>{pesos(Number(i.total))}</span>
                       </li>
