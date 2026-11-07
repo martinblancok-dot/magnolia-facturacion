@@ -464,7 +464,18 @@ export function Caja() {
     } catch {
       setCb({ codigo, cargando: false, error: "Sin internet no se puede buscar la venta.", cant: {} });
     }
-  };
+  };  // Desde Ventas → "Hacer cambio": la caja abre con esa venta cargada (/caja?cambio=CODIGO)
+  const cambioPedido = useRef(false);
+  useEffect(() => {
+    if (!turno || cambioPedido.current) return;
+    const codigo = new URLSearchParams(location.search).get("cambio");
+    if (!codigo) return;
+    cambioPedido.current = true;
+    history.replaceState(null, "", "/caja");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    buscarVentaCambio(codigo);
+  }, [turno]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const confirmarDevolucion = () => {
     if (!cb?.venta) return;
     const v = cb.venta;

@@ -18,7 +18,6 @@ export async function GET(req: Request) {
   const v = ventas?.[0];
   if (!v) return NextResponse.json({ error: `No encontré ninguna venta con el código ${texto.trim().toUpperCase()}.` }, { status: 404 });
   if (v.anulada) return NextResponse.json({ error: "Esa venta está anulada." }, { status: 409 });
-  if (String(v.terminal ?? "").startsWith("Aronium")) return NextResponse.json({ error: "Es una venta vieja de Aronium: el cambio se hace cargando la devolución a mano." }, { status: 409 });
 
   // Lo que ya se devolvió en cambios anteriores de esta venta
   const { data: cambios } = await db.from("ventas").select("id, venta_items(producto_id, nombre, cantidad)").eq("cambio_de", v.id).eq("anulada", false);

@@ -205,7 +205,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                 <details open={!!rango}>
                   <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
                     <span>
-                      <b>#{v.numero}</b> · {buscado ? `${new Date(v.creada_en).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })} ` : ""}{hora(v.creada_en)} · {nombreLocal(v.local_id)} {v.terminal?.startsWith("Aronium") ? <span className="rounded bg-gray-100 px-1.5 text-xs text-suave">{v.terminal}</span> : <span className="font-mono text-xs text-suave">{codigoVenta(v.id)}</span>}
+                      <b>#{v.numero}</b> · {buscado ? `${new Date(v.creada_en).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })} ` : ""}{hora(v.creada_en)} · {nombreLocal(v.local_id)} {v.terminal?.startsWith("Aronium") && <span className="rounded bg-gray-100 px-1.5 text-xs text-suave">{v.terminal}</span>} <span className="font-mono text-xs text-suave">{codigoVenta(v.id)}</span>
                       <span className="block text-sm text-suave">
                         {medioTexto(v)} · {v.venta_items.reduce((s, i) => s + Number(i.cantidad), 0)} u.
                         {v.anulada && <span className="ml-2 font-semibold text-red-700">ANULADA</span>}
@@ -230,7 +230,8 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                         <p className={`mt-3 text-sm font-medium ${enPlazo ? "text-green-700" : "text-red-700"}`}>
                           {enPlazo ? "Dentro del plazo de cambio" : "Plazo de cambio vencido"} (vence {vence.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })})
                         </p>
-                        {v.terminal?.startsWith("Aronium") ? <p className="mt-2 text-xs text-suave">Venta importada de Aronium: es solo historial (no se reimprime, no se anula ni se cambia con ticket).</p> : <div className="mt-2 flex flex-wrap gap-2">
+                        {enPlazo && <Link href={`/caja?cambio=${codigoVenta(v.id)}`} className="boton-borde mt-2 inline-flex !px-3 !py-1.5 text-sm">↺ Hacer cambio en la caja</Link>}
+                        {v.terminal?.startsWith("Aronium") ? <p className="mt-2 text-xs text-suave">Venta importada de Aronium: no se reimprime ni se anula. Para cambiar algo usá “Hacer cambio en la caja” (o el código {codigoVenta(v.id)} en Caja → Cambio).</p> : <div className="mt-2 flex flex-wrap gap-2">
                           <Reimprimir venta={{ id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio: nombreMedio(v.medio_pago),
                             giftcard: tarjetaUsada(v) ? { codigo: tarjetaUsada(v)!.codigo, usado: Number(v.giftcard_monto), saldo: null } : null,
                             giftcard_nueva: tarjetaVendida(v) ? { codigo: tarjetaVendida(v)!.codigo, monto: Number(tarjetaVendida(v)!.monto) } : null,
