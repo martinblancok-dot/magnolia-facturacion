@@ -54,7 +54,7 @@ function Tabla({ titulo, filas }: { titulo: string; filas: ReturnType<typeof cal
 async function traerVentas(db: ReturnType<typeof clienteServidor>, desde: string, hasta: string, local: number | null) {
   const ventas: VentaRep[] = [];
   for (let i = 0; i < 30000; i += 1000) {
-    let q = db.from("ventas").select("*, venta_items(producto_id, sku, nombre, cantidad, total)")
+    let q = db.from("ventas").select("*, venta_items(*)")
       .eq("anulada", false).gte("creada_en", `${desde}T00:00:00-03:00`).lt("creada_en", `${sumarDias(hasta, 1)}T00:00:00-03:00`).order("creada_en").range(i, i + 999);
     if (local) q = q.eq("local_id", local);
     const { data } = await q;

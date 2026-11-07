@@ -12,7 +12,7 @@ import { DiaSelector } from "../../dia-selector";
 
 type Venta = {
   id: string; numero: number; local_id: number; creada_en: string; medio_pago: string; total: number; total_lista: number;
-  anulada: boolean; paga_con: number | null;
+  anulada: boolean; paga_con: number | null; terminal?: string | null;
   anulacion_pedida_por?: string | null; anulacion_pedida_en?: string | null; anulacion_motivo?: string | null; anulacion_rechazada_en?: string | null;
   giftcard_id?: string | null; giftcard_monto?: number | null; pagos?: { medio: string; monto: number }[] | null;
   venta_items: { n: number; nombre: string; sku: string | null; cantidad: number; precio_unitario: number; total: number }[];
@@ -42,7 +42,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
     const { data: abiertos } = await db.from("turnos_caja").select("id, local_id, abierta_en, abierta_por").is("cerrada_en", null);
     misTurnos = (abiertos ?? []).filter((t) => ids.includes(t.id) || t.abierta_por === u.id);
   }
-  const BASE = "id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, venta_items(n, nombre, sku, cantidad, precio_unitario, total)";
+  const BASE = "id, numero, local_id, creada_en, medio_pago, total, total_lista, anulada, paga_con, terminal, venta_items(n, nombre, sku, cantidad, precio_unitario, total)";
   const PEDIDOS = ", anulacion_pedida_por, anulacion_pedida_en, anulacion_motivo, anulacion_rechazada_en";
   const consulta = (cols: string) => {
     let q = db.from("ventas").select(cols).order("creada_en", { ascending: false }).limit(1000);
@@ -173,7 +173,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                 <details open={!!buscado}>
                   <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
                     <span>
-                      <b>#{v.numero}</b> · {buscado ? `${new Date(v.creada_en).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })} ` : ""}{hora(v.creada_en)} · {nombreLocal(v.local_id)} <span className="font-mono text-xs text-suave">{codigoVenta(v.id)}</span>
+                      <b>#{v.numero}</b> · {buscado ? `${new Date(v.creada_en).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })} ` : ""}{hora(v.creada_en)} · {nombreLocal(v.local_id)} {v.terminal?.startsWith("Aronium") ? <span className="rounded bg-gray-100 px-1.5 text-xs text-suave">{v.terminal}</span> : <span className="font-mono text-xs text-suave">{codigoVenta(v.id)}</span>}
                       <span className="block text-sm text-suave">
                         {medioTexto(v)} · {v.venta_items.reduce((s, i) => s + Number(i.cantidad), 0)} u.
                         {v.anulada && <span className="ml-2 font-semibold text-red-700">ANULADA</span>}
@@ -198,14 +198,14 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
                         <p className={`mt-3 text-sm font-medium ${enPlazo ? "text-green-700" : "text-red-700"}`}>
                           {enPlazo ? "Dentro del plazo de cambio" : "Plazo de cambio vencido"} (vence {vence.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })})
                         </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        {v.terminal?.startsWith("Aronium") ? <p className="mt-2 text-xs text-suave">Venta importada de Aronium: es solo historial (no se reimprime, no se anula ni se cambia con ticket).</p> : <div className="mt-2 flex flex-wrap gap-2">
                           <Reimprimir venta={{ id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio: nombreMedio(v.medio_pago),
                             giftcard: tarjetaUsada(v) ? { codigo: tarjetaUsada(v)!.codigo, usado: Number(v.giftcard_monto), saldo: null } : null,
                             giftcard_nueva: tarjetaVendida(v) ? { codigo: tarjetaVendida(v)!.codigo, monto: Number(tarjetaVendida(v)!.monto) } : null,
                             total: Number(v.total), paga_con: v.paga_con == null ? null : Number(v.paga_con),
                             items: [...v.venta_items].sort((a, b) => a.n - b.n).map((i) => ({ nombre: i.nombre, cantidad: Number(i.cantidad), precio_unitario: Number(i.precio_unitario), total: Number(i.total) })) }} />
                           {duenio && <BotonAccion accion={anularVenta.bind(null, v.id)} texto="Anular venta" borde />}
-                        </div>
+                        </div>}
                         {v.anulacion_pedida_en ? (
                           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
                             Anulación pedida por {quien(v.anulacion_pedida_por)} (“{v.anulacion_motivo}”). {duenio ? "Confirmala o rechazala arriba." : "Esperando que Martín o Sofi la confirmen."}

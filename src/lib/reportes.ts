@@ -1,6 +1,6 @@
 // Cálculo de reportes de ventas (puro: recibe ventas y datos de productos).
 import { partesPago } from "./caja";
-export interface ItemRep { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; total: number }
+export interface ItemRep { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; total: number; costo?: number | null }
 export interface VentaRep { id: string; local_id: number; creada_en: string; medio_pago: string; total: number; giftcard_monto: number; pagos?: { medio: string; monto: number }[] | null; items: ItemRep[] }
 export interface ProductoRep { id: string; costo: number | null; categoria: string | null; proveedor: string | null }
 
@@ -38,7 +38,8 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
       const cant = Number(i.cantidad);
       const plata = Number(i.total) * (cant > 0 ? factor : 1);
       const p = i.producto_id ? productos.get(i.producto_id) : undefined;
-      const c = p?.costo != null ? Number(p.costo) * cant : null;
+      // costo de ese momento si se sabe (ventas de Aronium); si no, el costo actual del producto
+      const c = i.costo != null ? Number(i.costo) * cant : p?.costo != null ? Number(p.costo) * cant : null;
       ingresoVenta += plata; unidades += cant;
       if (cant < 0) devoluciones += -plata;
       if (c === null) sinCostoIngreso += plata; else costo += c;

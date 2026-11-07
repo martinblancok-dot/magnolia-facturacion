@@ -331,6 +331,8 @@ export async function importarCatalogo(_prev: ResultadoImportacion | null, form:
 
 export async function anularVenta(id: string): Promise<Mensaje> {
   const u = await soloDuenio(); // solo Martín y Sofi; los colaboradores piden la anulación
+  const { data: v } = await clienteServidor().from("ventas").select("terminal").eq("id", id).maybeSingle();
+  if (v?.terminal?.startsWith("Aronium")) return { ok: false, texto: "Las ventas importadas de Aronium son solo historial: no se anulan." };
   const { data, error } = await clienteServidor().rpc("anular_venta", { venta: id, usuario: u.id });
   if (error) return { ok: false, texto: error.message };
   revalidatePath("/", "layout");

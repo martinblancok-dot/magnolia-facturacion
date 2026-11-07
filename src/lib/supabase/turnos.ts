@@ -47,7 +47,7 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
   const vs = (ventas ?? []).map((v) => ({ ...v, total: Number(v.total) })) as VentaTurno[];
   const resumen = resumenTurno(Number(t.fondo_inicial), vs, (movs ?? []).map((m) => ({ tipo: m.tipo, monto: Number(m.monto) })) as MovimientoCaja[]);
   const cruce = cruzarPagos(
-    ((delPeriodo ?? []) as (VentaTurno & { local_id: number })[]).map((v) => ({ ...v, total: Number(v.total) })),
+    ((delPeriodo ?? []) as (VentaTurno & { local_id: number; terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })),
     ((cobros ?? []) as CobroMP[]).map((c) => ({ ...c, importe: Number(c.importe) })),
   );
   const idsTurno = new Set(vs.map((v) => v.id));
@@ -96,7 +96,7 @@ export async function confirmarTransferenciasConCaja(db: SupabaseClient, desdeIS
   if (e1 || e2 || !cobros?.length || !ventas?.length) return 0;
   if (!cobros.some((c) => c.estado === "revisar")) return 0;
   const cruce = cruzarPagos(
-    (ventas as VentaTurno[]).map((v) => ({ ...v, total: Number(v.total) })),
+    (ventas as (VentaTurno & { terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })),
     (cobros as CobroMP[]).map((c) => ({ ...c, importe: Number(c.importe) })),
   );
   const revisar = new Set(cobros.filter((c) => c.estado === "revisar").map((c) => c.id));

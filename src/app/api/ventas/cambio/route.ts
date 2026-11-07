@@ -12,12 +12,13 @@ export async function GET(req: Request) {
   if (!rango) return NextResponse.json({ error: "El código del ticket tiene 8 letras y números (está abajo del código de barras)." }, { status: 400 });
   const db = clienteServidor();
   const { data: ventas, error } = await db.from("ventas")
-    .select("id, local_id, creada_en, medio_pago, total, anulada, giftcard_id, giftcard_monto, cambio_de, venta_items(n, producto_id, barcode, sku, nombre, cantidad, precio_unitario, total)")
+    .select("id, local_id, creada_en, medio_pago, total, anulada, terminal, giftcard_id, giftcard_monto, cambio_de, venta_items(n, producto_id, barcode, sku, nombre, cantidad, precio_unitario, total)")
     .gte("id", rango[0]).lte("id", rango[1]).limit(1);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const v = ventas?.[0];
   if (!v) return NextResponse.json({ error: `No encontré ninguna venta con el código ${texto.trim().toUpperCase()}.` }, { status: 404 });
   if (v.anulada) return NextResponse.json({ error: "Esa venta está anulada." }, { status: 409 });
+  if (String(v.terminal ?? "").startsWith("Aronium")) return NextResponse.json({ error: "Es una venta vieja de Aronium: el cambio se hace cargando la devolución a mano." }, { status: 409 });
 
   // Lo que ya se devolvió en cambios anteriores de esta venta
   const { data: cambios } = await db.from("ventas").select("id, venta_items(producto_id, nombre, cantidad)").eq("cambio_de", v.id).eq("anulada", false);
