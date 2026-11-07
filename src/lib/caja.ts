@@ -24,7 +24,35 @@ export const conDiez = (lista: number) => Math.round((lista * 0.9) / 50) * 50;
 
 /** Producto tal como viaja a la caja: [id, barcode, sku, nombre, lista, efectivo, categoria] */
 /** [id, barcode, sku, nombre, lista, efectivo, categoria, proveedor] */
-export type ProductoCaja = [string, string, string, string, number, number, string | null, (string | null)?];
+/** [id, código interno, sku, nombre, lista, efectivo, categoría, proveedor, códigos alternativos] */
+export type ProductoCaja = [string, string, string, string, number, number, string | null, (string | null)?, string[]?];
+
+/** Forma de comparar códigos de barras: sin espacios, mayúsculas y, si es solo números, sin ceros adelante. */
+export function claveCodigo(c: string): string {
+  const t = c.trim().replace(/\s+/g, "");
+  return /^[0-9]+$/.test(t) ? t.replace(/^0+/, "") || "0" : t.toUpperCase();
+}
+
+// Índice de códigos (interno, alternativos y SKU) → producto. Se arma una vez por catálogo.
+const indices = new WeakMap<ProductoCaja[], { codigos: Map<string, ProductoCaja>; skus: Map<string, ProductoCaja> }>();
+function indice(catalogo: ProductoCaja[]) {
+  let ix = indices.get(catalogo);
+  if (!ix) {
+    const codigos = new Map<string, ProductoCaja>(), skus = new Map<string, ProductoCaja>();
+    for (const p of catalogo) {
+      for (const c of [p[1], ...(p[8] ?? [])]) { const k = claveCodigo(c); if (!codigos.has(k)) codigos.set(k, p); }
+      const s = p[2].trim().toLowerCase(); if (!skus.has(s)) skus.set(s, p);
+    }
+    ix = { codigos, skus };
+    indices.set(catalogo, ix);
+  }
+  return ix;
+}
+
+/** El producto de un código de barras (interno o cualquier alternativo), o null. */
+export function porCodigo(catalogo: ProductoCaja[], codigo: string): ProductoCaja | null {
+  return indice(catalogo).codigos.get(claveCodigo(codigo)) ?? null;
+}
 
 export interface ItemCarrito {
   producto_id: string | null; // null = "varios" cargado a mano
@@ -95,9 +123,11 @@ export function buscar(catalogo: ProductoCaja[], texto: string, max = 30): { exa
   const t = texto.trim();
   if (!t) return { exacto: null, resultados: [] };
   const tl = t.toLowerCase();
-  const exacto = catalogo.find((p) => p[1] === t) ?? catalogo.find((p) => p[1].toLowerCase() === tl || p[2].toLowerCase() === tl) ?? null;
-  // Código de barras completo (lector): no hace falta lista
-  if (exacto && exacto[1].toLowerCase() === tl) return { exacto, resultados: [exacto] };
+  const ix = indice(catalogo);
+  const porCod = ix.codigos.get(claveCodigo(t)) ?? null;
+  // Código de barras completo (interno u original, del lector o escrito): no hace falta lista
+  if (porCod) return { exacto: porCod, resultados: [porCod] };
+  const exacto = ix.skus.get(tl) ?? null;
   const palabras = normalizar(t).split(/\s+/).filter(Boolean);
   const encontrados: ProductoCaja[] = [];
   for (const p of catalogo) {

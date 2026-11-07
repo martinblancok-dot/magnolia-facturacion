@@ -14,6 +14,8 @@ export interface ProductoImportado {
   precio_lista: number;
   precio_efectivo: number;
   hoja: string;
+  /** Códigos alternativos (columna "Barcode original" de la planilla). */
+  codigos?: string[];
 }
 
 export interface Conflicto {
@@ -27,6 +29,14 @@ const plata = (v: unknown) => {
   const n = typeof v === "number" ? v : numeroAR(v);
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : NaN;
 };
+
+/** Una celda puede traer uno o varios códigos (separados por coma, punto y coma o salto de línea). */
+export function separarCodigos(v: unknown): string[] {
+  if (v === null || v === undefined || v === "") return [];
+  // Sheets manda los códigos numéricos como número: sin decimales ni notación científica
+  const s = typeof v === "number" ? (Number.isInteger(v) ? BigInt(v).toString() : String(v)) : String(v);
+  return s.split(/[,;\n]+/).map((x) => x.trim().replace(/\s+/g, "")).filter((x) => x.length >= 4);
+}
 
 export function leerHojas(hojas: { sheet: string; data: unknown[][] }[]) {
   const productos = new Map<string, ProductoImportado>();
@@ -47,6 +57,8 @@ export function leerHojas(hojas: { sheet: string; data: unknown[][] }[]) {
       categoria: col("categoria"),
       proveedor: col("proveedor"),
     };
+    // Columnas con códigos alternativos: "Barcode original (completo)", "Código original", etc.
+    const colsCodigos = titulos.map((t, i) => (/^(barcode|codigo|código|cod\.?) (original|alternativo|de fabrica|de fábrica)/.test(t) ? i : -1)).filter((i) => i >= 0);
     // Solo pestañas de proveedor (las consolidadas y de etiquetas no tienen estas columnas)
     if ([c.sku, c.nombre, c.lista, c.barcode].some((i) => i < 0)) continue;
     hojasLeidas.push(sheet);
@@ -64,6 +76,7 @@ export function leerHojas(hojas: { sheet: string; data: unknown[][] }[]) {
         proveedor: c.proveedor >= 0 ? texto(f[c.proveedor]) || sheet : sheet,
         costo: c.costo >= 0 && Number.isFinite(plata(f[c.costo])) ? plata(f[c.costo]) : null,
         precio_lista: lista, precio_efectivo: efectivo, hoja: sheet,
+        codigos: [...new Set(colsCodigos.flatMap((i) => separarCodigos(f[i])).filter((x) => x !== barcode))],
       };
       const previo = productos.get(barcode);
       if (previo) {

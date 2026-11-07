@@ -1,6 +1,7 @@
 // Pedidos de autorización de descuentos: la caja de un colaborador los pide y los consulta;
 // los dueños ven cuántos hay pendientes.
 import { NextResponse } from "next/server";
+import { leerEstado } from "@/lib/supabase/planilla";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { perfilDe, usuarioDeLaSesion } from "@/lib/supabase/sesion";
 
@@ -30,10 +31,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ estado: data.estado, datos: data.datos });
   }
   // Para los dueños: cuántos pedidos esperan respuesta
-  if ((await perfilDe(u.id)).rol !== "duenio") return NextResponse.json({ descuentos: 0, anulaciones: 0 });
-  const [a, b] = await Promise.all([
+  if ((await perfilDe(u.id)).rol !== "duenio") return NextResponse.json({ descuentos: 0, anulaciones: 0, codigos: 0 });
+  const [a, b, planilla] = await Promise.all([
     db.from("autorizaciones").select("id", { count: "exact", head: true }).eq("estado", "pendiente"),
     db.from("ventas").select("id", { count: "exact", head: true }).not("anulacion_pedida_en", "is", null).eq("anulada", false),
+    leerEstado(db).catch(() => null),
   ]);
-  return NextResponse.json({ descuentos: a.count ?? 0, anulaciones: b.count ?? 0 });
+  return NextResponse.json({ descuentos: a.count ?? 0, anulaciones: b.count ?? 0, codigos: planilla?.codigos?.repetidos.length ?? 0 });
 }

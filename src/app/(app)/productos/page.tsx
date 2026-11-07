@@ -1,3 +1,4 @@
+import { claveCodigo } from "@/lib/caja";
 import Link from "next/link";
 import { ImportarCatalogo } from "./importar";
 import { adminDesbloqueado } from "@/lib/admin";
@@ -16,7 +17,10 @@ export default async function Productos({ searchParams }: { searchParams: Promis
     .eq("activo", true).order("nombre").limit(80);
   if (q) {
     const limpio = q.replace(/[%,()*"\\]/g, " ").trim();
-    consulta = consulta.or(`nombre.ilike.%${limpio}%,sku.ilike.%${limpio}%,proveedor.ilike.%${limpio}%,categoria.ilike.%${limpio}%,barcode.eq.${limpio}`);
+    // También por código original (de fábrica): busca a qué producto pertenece
+    const alt = await db.from("producto_codigos").select("producto_id").eq("clave", claveCodigo(limpio)).limit(5);
+    const ids = alt.error ? [] : (alt.data ?? []).map((x) => x.producto_id);
+    consulta = consulta.or(`nombre.ilike.%${limpio}%,sku.ilike.%${limpio}%,proveedor.ilike.%${limpio}%,categoria.ilike.%${limpio}%,barcode.eq.${limpio}${ids.length ? `,id.in.(${ids.join(",")})` : ""}`);
   }
   const { data: productos } = await consulta;
   const stockDe = (p: { stock?: { local_id: number; cantidad: number }[] }, local: number) =>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Codigos } from "./codigos";
 import { EliminarProducto, FormProducto } from "./formulario";
 import { adminDesbloqueado } from "@/lib/admin";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -19,17 +20,21 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
   }
   const nuevo = id === "nuevo";
   let p = null;
+  let codigos: { codigo: string; origen: string }[] = [];
   if (!nuevo) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
     const { data } = await clienteServidor().from("productos").select("*").eq("id", id).maybeSingle();
     if (!data) notFound();
     p = data;
+    const r = await clienteServidor().from("producto_codigos").select("codigo, origen").eq("producto_id", id).order("creado_en");
+    codigos = r.error ? [] : r.data ?? [];
   }
   return (
     <div className="max-w-2xl space-y-4">
       <Link href="/productos" className="text-sm text-suave underline">← Productos</Link>
       <h1 className="text-2xl font-semibold">{nuevo ? "Nuevo producto" : "Editar producto"}</h1>
       <FormProducto p={p} hojas={nuevo ? (await leerEstado(clienteServidor()))?.hojas ?? [] : []} />
+      {p && <Codigos productoId={p.id} interno={p.barcode} codigos={codigos} />}
       {p && (
         <div className="tarjeta border-red-200">
           <h2 className="font-semibold text-red-800">Eliminar producto</h2>

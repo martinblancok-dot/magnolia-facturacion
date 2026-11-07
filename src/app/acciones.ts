@@ -2,6 +2,7 @@
 // Todo lo que se hace con un botón: ingresar, guardar la configuración, marcar cobros, facturar.
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { claveCodigo } from "@/lib/caja";
 import { UMBRAL_IDENTIFICACION } from "@/lib/arca/config";
 import { claveCorresponde, infoCertificado, normalizarCertificado, normalizarClave } from "@/lib/arca/certificados";
 import { pedirTicket } from "@/lib/arca/wsaa";
@@ -466,6 +467,8 @@ export async function guardarProducto(_prev: Mensaje | null, form: FormData): Pr
   if (!(Number(datos.precio_efectivo) >= 0) || Number.isNaN(datos.costo)) return { ok: false, texto: "Revisá los precios." };
   const { data: otro } = await db.from("productos").select("id, nombre").eq("barcode", datos.barcode).maybeSingle();
   if (otro && otro.id !== id) return { ok: false, texto: `Ese código de barras ya lo usa "${otro.nombre}".` };
+  const alt = await productoDeCodigoAlternativo(db, datos.barcode);
+  if (alt && alt.id !== id) return { ok: false, texto: `Ese código de barras ya es un código original de "${alt.nombre}".` };
   const r = id ? await db.from("productos").update(datos).eq("id", id) : await db.from("productos").insert({ ...datos, activo: true });
   if (r.error) return { ok: false, texto: r.error.message };
   revalidatePath("/productos", "layout");
@@ -689,4 +692,42 @@ export async function cruzarTransferenciasConCaja(): Promise<Mensaje> {
   const n = await confirmarTransferenciasConCaja(clienteServidor(), new Date(Date.now() - 7 * 24 * 3600_000).toISOString());
   revalidatePath("/cobros");
   return { ok: true, texto: n ? `${n} transferencia${n === 1 ? "" : "s"} coincidieron con ventas de la caja y pasaron a “Por facturar”.` : "Ninguna transferencia para revisar coincide con una venta de la caja." };
+}
+
+// ---------- Códigos de barras alternativos ----------
+
+async function productoDeCodigoAlternativo(db: ReturnType<typeof clienteServidor>, codigo: string) {
+  const { data, error } = await db.from("producto_codigos").select("producto_id, productos(id, nombre)").eq("clave", claveCodigo(codigo)).maybeSingle();
+  if (error || !data) return null;
+  const p = (Array.isArray(data.productos) ? data.productos[0] : data.productos) as { id: string; nombre: string } | null;
+  return p;
+}
+
+/** Agrega un código de barras más a un producto (ej. el que trae de fábrica). Solo Martín y Sofi. */
+export async function agregarCodigo(productoId: string, codigo: string): Promise<Mensaje> {
+  await soloDuenio();
+  const c = codigo.trim().replace(/\s+/g, "");
+  if (!/^[0-9a-f-]{36}$/i.test(productoId)) return { ok: false, texto: "Producto inválido." };
+  if (c.length < 4 || c.length > 60) return { ok: false, texto: "Escaneá o escribí el código completo." };
+  const db = clienteServidor();
+  const { data: p } = await db.from("productos").select("id, barcode").eq("id", productoId).maybeSingle();
+  if (!p) return { ok: false, texto: "No encontré el producto." };
+  if (claveCodigo(p.barcode) === claveCodigo(c)) return { ok: false, texto: "Ese ya es el código interno de este producto." };
+  const alt = await productoDeCodigoAlternativo(db, c);
+  if (alt) return { ok: false, texto: alt.id === productoId ? "Este producto ya tiene ese código." : `Ese código ya es de "${alt.nombre}". No se cambió nada.` };
+  const { error } = await db.from("producto_codigos").insert({ codigo: c, producto_id: productoId, tipo: "original", origen: "sistema" });
+  if (error) return { ok: false, texto: /producto_codigos/.test(error.message) && /exist/.test(error.message) ? "Falta correr la migración 0020_codigos_alternativos.sql en Supabase." : error.message };
+  await db.from("productos").update({ actualizado_en: new Date().toISOString() }).eq("id", productoId); // que la caja lo baje
+  revalidatePath(`/productos/${productoId}`);
+  return { ok: true, texto: "Código agregado. La caja lo toma en la próxima actualización." };
+}
+
+export async function quitarCodigo(productoId: string, codigo: string): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  const { error } = await db.from("producto_codigos").delete().eq("codigo", codigo).eq("producto_id", productoId).eq("origen", "sistema");
+  if (error) return { ok: false, texto: error.message };
+  await db.from("productos").update({ actualizado_en: new Date().toISOString() }).eq("id", productoId);
+  revalidatePath(`/productos/${productoId}`);
+  return { ok: true, texto: "Código quitado." };
 }

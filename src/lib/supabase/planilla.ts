@@ -1,7 +1,7 @@
 // Lado servidor de la sincronización con Precios Deco.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { leerHojas } from "../catalogo";
-import { compararCatalogo, tokenCorrecto, type ProductoSistema } from "../planilla";
+import { leerHojas, type ProductoImportado } from "../catalogo";
+import { compararCatalogo, compararCodigos, tokenCorrecto, type CodigoExistente, type ProductoSistema } from "../planilla";
 
 export async function planillaAutorizada(db: SupabaseClient, req: Request): Promise<boolean> {
   const { data } = await db.from("ajustes").select("valor").eq("clave", "token_planilla").maybeSingle();
@@ -33,6 +33,8 @@ export interface EstadoPlanilla {
   repetidos: { barcode: string; queda: string; descartado: string }[];
   hojas?: string[];
   error?: string;
+  /** Códigos de barras alternativos (columna "Barcode original"). */
+  codigos?: { total: number; agregados: number; quitados: number; repetidos: { codigo: string; detalle: string }[]; error?: string };
 }
 
 export async function guardarEstado(db: SupabaseClient, e: EstadoPlanilla) {
@@ -74,10 +76,51 @@ export async function sincronizarDesdePlanilla(db: SupabaseClient, hojas: { shee
     const { error } = await db.from("productos").update({ activo: false, baja: "planilla", actualizado_en: ahora }).in("id", c.bajas.slice(i, i + 300));
     if (error) throw new Error(error.message);
   }
+  const codigos = await sincronizarCodigos(db, leidas.productos, leidas.hojas);
   const estado: EstadoPlanilla = {
     cuando: ahora, productos: leidas.productos.length, nuevos: c.nuevos.length, actualizados: c.cambios.length,
-    bajas: c.bajas.length, bajasFrenadas: c.bajasFrenadas, repetidos: leidas.conflictos.slice(0, 50), hojas: leidas.hojas,
+    bajas: c.bajas.length, bajasFrenadas: c.bajasFrenadas, repetidos: leidas.conflictos.slice(0, 50), hojas: leidas.hojas, codigos,
   };
   await guardarEstado(db, estado);
   return estado;
+}
+
+/** Guarda los códigos originales de la planilla en producto_codigos. Si algo choca, avisa y no pisa. */
+async function sincronizarCodigos(db: SupabaseClient, planilla: ProductoImportado[], hojas: string[]): Promise<EstadoPlanilla["codigos"]> {
+  const existentes: CodigoExistente[] = [];
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await db.from("producto_codigos").select("codigo, producto_id, origen").range(desde, desde + 999);
+    if (error) {
+      // Sin la migración 0020 no hay dónde guardarlos: se avisa solo si la planilla trae alguno
+      const hay = planilla.some((p) => p.codigos?.length);
+      return hay ? { total: 0, agregados: 0, quitados: 0, repetidos: [], error: "Falta correr la migración 0020_codigos_alternativos.sql en Supabase." } : undefined;
+    }
+    existentes.push(...((data ?? []) as CodigoExistente[]));
+    if (!data || data.length < 1000) break;
+  }
+  const productos = (await todosLosProductos(db)).map((p) => ({ id: p.id, barcode: p.barcode, nombre: p.nombre, hoja: p.hoja }));
+  const c = compararCodigos(planilla, productos, existentes, hojas);
+  const repetidos = [...c.repetidos];
+  for (let i = 0; i < c.quitar.length; i += 300) {
+    await db.from("producto_codigos").delete().in("codigo", c.quitar.slice(i, i + 300)).eq("origen", "planilla");
+  }
+  let agregados = 0;
+  for (let i = 0; i < c.agregar.length; i += 300) {
+    const lote = c.agregar.slice(i, i + 300).map((x) => ({ codigo: x.codigo, producto_id: x.producto_id, tipo: "original", origen: "planilla" }));
+    const { error } = await db.from("producto_codigos").insert(lote);
+    if (!error) { agregados += lote.length; continue; }
+    // Si falla el lote (por un choque que justo apareció), se prueban de a uno para no perder los demás
+    for (const x of lote) {
+      const r = await db.from("producto_codigos").insert(x);
+      if (r.error) repetidos.push({ codigo: x.codigo, detalle: r.error.message }); else agregados++;
+    }
+  }
+  if (c.agregar.length || c.quitar.length) {
+    // Que las cajas bajen el catálogo de nuevo
+    const quitados = new Set(c.quitar);
+    const ids = [...new Set([...c.agregar.map((x) => x.producto_id), ...existentes.filter((e) => quitados.has(e.codigo)).map((e) => e.producto_id)])];
+    for (let i = 0; i < ids.length; i += 300) await db.from("productos").update({ actualizado_en: new Date().toISOString() }).in("id", ids.slice(i, i + 300));
+  }
+  const total = existentes.length - c.quitar.length + agregados;
+  return { total, agregados, quitados: c.quitar.length, repetidos: repetidos.slice(0, 100) };
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-export function AvisosDuenio({ inicial }: { inicial: { descuentos: number; anulaciones: number } }) {
+export function AvisosDuenio({ inicial }: { inicial: { descuentos: number; anulaciones: number; codigos?: number } }) {
   const [n, setN] = useState(inicial);
   const ruta = usePathname();
   useEffect(() => {
@@ -17,7 +17,7 @@ export function AvisosDuenio({ inicial }: { inicial: { descuentos: number; anula
     const cada = setInterval(ver, 15_000);
     return () => clearInterval(cada);
   }, []);
-  if (!n.descuentos && !n.anulaciones) return null;
+  if (!n.descuentos && !n.anulaciones && !n.codigos) return null;
   return (
     <div className="mb-5 flex flex-col gap-2">
       {n.descuentos > 0 && ruta !== "/autorizaciones" && (
@@ -28,6 +28,11 @@ export function AvisosDuenio({ inicial }: { inicial: { descuentos: number; anula
       {n.anulaciones > 0 && ruta !== "/ventas" && (
         <Link href="/ventas" className="block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           ⚠ {n.anulaciones === 1 ? "Hay 1 anulación de venta" : `Hay ${n.anulaciones} anulaciones de venta`} esperando tu autorización. <u>Revisar →</u>
+        </Link>
+      )}
+      {!!n.codigos && ruta !== "/configuracion/planilla" && (
+        <Link href="/configuracion/planilla" className="block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          ⚠ {n.codigos === 1 ? "Hay 1 código de barras original repetido" : `Hay ${n.codigos} códigos de barras originales repetidos`} en Precios Deco: no se cargaron. <u>Ver cuáles →</u>
         </Link>
       )}
     </div>

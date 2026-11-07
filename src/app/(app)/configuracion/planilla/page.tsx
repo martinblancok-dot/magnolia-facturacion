@@ -49,6 +49,20 @@ export default async function PlanillaConfig() {
                 <ul className="mt-2 space-y-1">{estado.repetidos.map((r) => <li key={r.barcode + r.descartado}><b>{r.barcode}</b>: queda {r.queda} · se ignora {r.descartado}</li>)}</ul>
               </details>
             )}
+            {estado.codigos && (
+              <div className="text-sm">
+                {estado.codigos.error ? <p className="text-red-700">Códigos originales: {estado.codigos.error}</p> : (
+                  <p className="text-suave">Códigos originales (columna &quot;Barcode original&quot;): {estado.codigos.total} cargados
+                    {estado.codigos.agregados || estado.codigos.quitados ? ` · en la última: ${estado.codigos.agregados} nuevos, ${estado.codigos.quitados} quitados` : ""}.</p>
+                )}
+                {estado.codigos.repetidos.length > 0 && (
+                  <details open className="mt-1 rounded-lg bg-amber-50 p-2">
+                    <summary className="cursor-pointer font-semibold text-amber-900">⚠️ {estado.codigos.repetidos.length} código{estado.codigos.repetidos.length === 1 ? "" : "s"} original{estado.codigos.repetidos.length === 1 ? "" : "es"} repetido{estado.codigos.repetidos.length === 1 ? "" : "s"}: no se cargaron, corregilos en la planilla</summary>
+                    <ul className="mt-2 space-y-1">{estado.codigos.repetidos.map((r) => <li key={r.codigo + r.detalle}><b className="font-mono">{r.codigo}</b>: {r.detalle}</li>)}</ul>
+                  </details>
+                )}
+              </div>
+            )}
           </>
         )}
       </section>
