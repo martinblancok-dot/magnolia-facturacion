@@ -6,13 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   agregar, armarVenta, armarVentaCambio, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
-  armarVentaDividida, cobroDividido,
+  armarVentaDividida, cobroDividido, porCodigo,
 } from "@/lib/caja";
 import { encolar, guardar, guardarVenta, leer, outbox, ventasPendientes, type Apertura, type TurnoLocal } from "@/lib/caja-local";
 import { DENOMINACIONES, totalBilletes } from "@/lib/cierre";
 import { guardarTurno, subirTodo, turnoDeEstaCompu } from "@/lib/caja-sync";
 import { codigoVenta, type VentaImpresa } from "@/lib/impresion";
 import { BotonTicketsCambio, useImpresion } from "../impreso";
+import { BotonCamara, EscanerCamara } from "../escaner";
 import type { DescuentoManual, Promo } from "@/lib/promos";
 
 const pesos = (n: number) =>
@@ -369,6 +370,18 @@ export function Caja() {
     setBusqueda("");
     setAviso(null);
     entrada.current?.focus();
+  };
+
+  // Código leído con la cámara del teléfono/tablet: igual que escanearlo con el lector
+  const [camara, setCamara] = useState<null | "productos" | "cambio">(null);
+  const leidoConCamara = (cod: string) => {
+    const leido = cod.trim().toUpperCase();
+    if (/^GC[0-9A-F]{8}$/.test(leido)) { cargarGc(leido.slice(2)); return { ok: true, texto: `Gift card ${leido}` }; }
+    if (!catalogo) return { ok: false, texto: "Todavía se están cargando los productos." };
+    const p = porCodigo(catalogo.productos, cod) ?? buscar(catalogo.productos, cod).exacto;
+    if (!p) return { ok: false, texto: `No encontré el código ${cod}` };
+    sumar(p);
+    return { ok: true, texto: p[3] };
   };
 
   const alEnter = () => {
@@ -745,7 +758,8 @@ export function Caja() {
             <button className="shrink-0 rounded-xl border border-dashed border-marca/60 px-4 text-sm font-semibold text-marca hover:bg-marca-claro" onClick={nuevaVenta}>+ Otra venta</button>
           </div>
 
-          <div className="relative shrink-0">
+          <div className="flex shrink-0 gap-2">
+          <div className="relative min-w-0 flex-1">
             <svg viewBox="0 0 24 24" className="pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 text-suave" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
             <input
               ref={entrada}
@@ -776,6 +790,10 @@ export function Caja() {
               </ul>
             )}
           </div>
+          <BotonCamara onClick={() => setCamara("productos")} />
+          </div>
+          {camara === "productos" && <EscanerCamara titulo="Escanear productos" onCodigo={leidoConCamara} onCerrar={() => setCamara(null)} />}
+          {camara === "cambio" && <EscanerCamara titulo="Escanear el ticket de la venta" continuo={false} onCodigo={(k) => { buscarVentaCambio(k); return { ok: true, texto: k }; }} onCerrar={() => setCamara(null)} />}
           {!catalogo && !cargandoCat && (
             <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
               No hay productos guardados en esta compu. Conectate a internet una vez para bajar el catálogo
@@ -792,6 +810,7 @@ export function Caja() {
                 </div>
                 <form className="flex gap-2 px-4 py-3" onSubmit={(e) => { e.preventDefault(); const k = String(new FormData(e.currentTarget).get("codigo") ?? "").trim(); if (k) buscarVentaCambio(k); }}>
                   <input name="codigo" defaultValue={cb.codigo} autoFocus autoComplete="off" className="campo uppercase" placeholder="Escaneá el ticket o escribí el código de la venta" />
+                  <BotonCamara onClick={() => setCamara("cambio")} />
                   <button className="boton" disabled={cb.cargando}>{cb.cargando ? "…" : "Buscar"}</button>
                 </form>
                 {cb.error && <p className="mx-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{cb.error}</p>}

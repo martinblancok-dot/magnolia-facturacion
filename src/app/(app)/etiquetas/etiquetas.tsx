@@ -4,7 +4,8 @@ import JsBarcode from "jsbarcode";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { buscar, type ProductoCaja } from "@/lib/caja";
+import { buscar, porCodigo, type ProductoCaja } from "@/lib/caja";
+import { BotonCamara, EscanerCamara } from "@/app/escaner";
 import { guardar, leer } from "@/lib/caja-local";
 
 type Tamanio = "40x20" | "50x30";
@@ -81,6 +82,15 @@ export function Etiquetas() {
   const texto = m ? m[2] : busqueda;
   const resultado = useMemo(() => (catalogo && texto.trim().length >= 2 ? buscar(catalogo, texto) : { exacto: null, resultados: [] }), [catalogo, texto]);
 
+  const [camara, setCamara] = useState(false);
+  const leidoConCamara = (cod: string) => {
+    if (!catalogo) return { ok: false, texto: "Todavía se están cargando los productos." };
+    const p = porCodigo(catalogo, cod) ?? buscar(catalogo, cod).exacto;
+    if (!p) return { ok: false, texto: `${cod} no está en el catálogo` };
+    sumar([{ id: p[0], cantidad: 1 }]);
+    return { ok: true, texto: p[3] };
+  };
+
   const sumar = (items: Linea[]) => {
     setLineas((ls) => {
       const copia = [...ls];
@@ -127,7 +137,9 @@ export function Etiquetas() {
           <div className="relative">
             <input ref={entrada} autoFocus value={busqueda} onChange={(e) => { setBusqueda(e.target.value); setAviso(null); }}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); alEnter(); } if (e.key === "Escape") setBusqueda(""); }}
-              placeholder={catalogo ? "Escaneá o buscá el producto (6*código = 6 etiquetas)" : "Cargando productos…"} className="campo !py-3 !text-lg" autoComplete="off" />
+              placeholder={catalogo ? "Escaneá o buscá el producto (6*código = 6 etiquetas)" : "Cargando productos…"} className="campo !py-3 !pr-16 !text-lg" autoComplete="off" />
+            <BotonCamara onClick={() => setCamara(true)} className="absolute top-1.5 right-1.5 bottom-1.5 !border-0" />
+            {camara && <EscanerCamara titulo="Escanear productos" onCodigo={leidoConCamara} onCerrar={() => setCamara(false)} />}
             {busqueda.trim().length >= 2 && resultado.resultados.length > 0 && !resultado.exacto && (
               <ul className="absolute inset-x-0 top-full z-10 mt-1 max-h-80 overflow-auto rounded-xl border border-linea bg-white shadow-lg">
                 {resultado.resultados.map((p) => (
