@@ -15,6 +15,7 @@ export interface DatosResumen {
   sinCobro?: number;          // ventas con tarjeta/transferencia que no aparecieron en Mercado Pago
   cobrosSinVenta?: number;
   top?: { nombre: string; cantidad: number }[];
+  movimientos?: { tipo: string; monto: number; motivo: string | null; creado_en: string }[];
   apertura?: { diferencia: number | null; nota?: string | null } | null;
 }
 
@@ -41,6 +42,10 @@ export function textoResumen(d: DatosResumen): string {
   l.push(`Cambio inicial ${$(d.fondo)} · esperado ${$(r.efectivoEsperado)}`);
   if (d.apertura?.diferencia) l.push(`⚠️ Al abrir ${d.apertura.diferencia < 0 ? "faltaban" : "sobraban"} ${$(Math.abs(d.apertura.diferencia))} respecto del cierre anterior${d.apertura.nota ? ` (${d.apertura.nota})` : ""}`);
   if (r.retiros || r.gastos || r.ingresos) l.push([r.ingresos && `ingresos ${$(r.ingresos)}`, r.retiros && `retiros ${$(r.retiros)}`, r.gastos && `gastos ${$(r.gastos)}`].filter(Boolean).join(" · "));
+  if (d.movimientos?.length) {
+    const nombre: Record<string, string> = { retiro: "Retiro", gasto: "Gasto", ingreso: "Ingreso" };
+    for (const m of d.movimientos) l.push(`• ${nombre[m.tipo] ?? m.tipo} ${horaAR(m.creado_en)}: ${m.tipo === "ingreso" ? "+" : "−"}${$(Number(m.monto))}${m.motivo ? ` (${m.motivo})` : ""}`);
+  }
   if (d.contado !== null) {
     const dif = d.diferencia ?? 0;
     l.push(`Contado ${$(d.contado)} · ${dif === 0 ? "✅ coincide" : dif > 0 ? `⚠️ sobran ${$(dif)}` : `⚠️ faltan ${$(-dif)}`}`);

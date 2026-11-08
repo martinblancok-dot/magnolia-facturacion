@@ -77,11 +77,20 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
           {t.deja_en_caja !== null && fila("Quedó en caja (cambio para mañana)", pesos(Number(t.deja_en_caja)))}
           {t.efectivo_contado !== null && t.deja_en_caja !== null && Number(t.efectivo_contado) > Number(t.deja_en_caja) && fila("Retirado al cerrar", pesos(Number(t.efectivo_contado) - Number(t.deja_en_caja)))}
         </ul>
-        {c.movimientos.length > 0 && (
-          <ul className="mt-3 text-sm text-suave">
-            {c.movimientos.map((m, i) => <li key={i}>{hora(m.creado_en)} · {m.tipo} {pesos(Number(m.monto))}{m.motivo ? ` · ${m.motivo}` : ""}</li>)}
-          </ul>
-        )}
+        {c.movimientos.length > 0 && (<div className="mt-3">
+          <div className="rounded-xl border border-linea">
+            <p className="border-b border-linea px-3 py-2 text-sm font-semibold">Retiros, gastos e ingresos del turno</p>
+            <ul className="divide-y divide-linea text-sm">
+              {c.movimientos.map((m, i) => (
+                <li key={i} className="flex items-start justify-between gap-3 px-3 py-2">
+                  <span><b>{({ retiro: "Retiro", gasto: "Gasto", ingreso: "Ingreso" } as Record<string, string>)[m.tipo] ?? m.tipo}</b> · {hora(m.creado_en)}
+                    <span className="block text-suave">{m.motivo || "Sin detalle"}</span></span>
+                  <b className={`shrink-0 tabular-nums ${m.tipo === "ingreso" ? "text-green-800" : ""}`}>{m.tipo === "ingreso" ? "+" : "−"}{pesos(Number(m.monto))}</b>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>)}
         {t.notas && <p className="mt-2 text-sm">Notas: {t.notas}</p>}
       </section>
 

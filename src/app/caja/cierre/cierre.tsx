@@ -170,11 +170,20 @@ export function CierreCaja() {
           {resumen.gastos > 0 && <li className="flex justify-between"><span>− Gastos</span><span>{pesos(resumen.gastos)}</span></li>}
           <li className="mt-1 flex justify-between border-t border-linea pt-1 font-semibold"><span>Tiene que haber en la caja</span><span>{pesos(esperado)}</span></li>
         </ul>
-        {datos.movimientos.length > 0 && (
-          <details className="text-sm"><summary className="cursor-pointer text-suave">Ver retiros y gastos ({datos.movimientos.length})</summary>
-            <ul className="mt-1">{datos.movimientos.map((m, i) => <li key={i}>{hora(m.creado_en)} · {m.tipo} · {pesos(Number(m.monto))}{m.motivo ? ` · ${m.motivo}` : ""}</li>)}</ul>
-          </details>
-        )}
+        {datos.movimientos.length > 0 ? (
+          <div className="rounded-xl border border-linea">
+            <p className="border-b border-linea px-3 py-2 text-sm font-semibold">Retiros, gastos e ingresos del turno</p>
+            <ul className="divide-y divide-linea text-sm">
+              {datos.movimientos.map((m, i) => (
+                <li key={i} className="flex items-start justify-between gap-3 px-3 py-2">
+                  <span><b>{({ retiro: "Retiro", gasto: "Gasto", ingreso: "Ingreso" } as Record<string, string>)[m.tipo] ?? m.tipo}</b> · {hora(m.creado_en)}
+                    <span className="block text-suave">{m.motivo || "Sin detalle"}</span></span>
+                  <b className={`shrink-0 tabular-nums ${m.tipo === "ingreso" ? "text-green-800" : ""}`}>{m.tipo === "ingreso" ? "+" : "−"}{pesos(Number(m.monto))}</b>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : <p className="text-sm text-suave">No hubo retiros, gastos ni ingresos en este turno.</p>}
 
         {fase === "listo" ? (
           <>

@@ -30,6 +30,7 @@ export async function resumenDeCierre(db: SupabaseClient, turnoId: string) {
     contado: t.efectivo_contado === null ? null : Number(t.efectivo_contado), diferencia: t.diferencia === null ? null : Number(t.diferencia),
     deja: t.deja_en_caja === null ? null : Number(t.deja_en_caja), notas: t.notas,
     sinCobro: c.alertas.ventasSinCobro.length, cobrosSinVenta: c.alertas.cobrosSinVenta.length, top: c.top,
+    movimientos: c.movimientos.map((m) => ({ ...m, monto: Number(m.monto) })),
     apertura: (t as { apertura?: DatosResumen["apertura"] }).apertura ?? null,
   });
   return { texto, asunto: `Cierre ${local?.nombre ?? ""} · $${Math.round(c.resumen.total).toLocaleString("es-AR")}` };
