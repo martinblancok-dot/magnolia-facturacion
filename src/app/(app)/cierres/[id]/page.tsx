@@ -75,7 +75,7 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
             </li>
           )}
           {t.deja_en_caja !== null && fila("Quedó en caja (cambio para mañana)", pesos(Number(t.deja_en_caja)))}
-          {t.efectivo_contado !== null && t.deja_en_caja !== null && fila("Retirado al cerrar", pesos(Number(t.efectivo_contado) - Number(t.deja_en_caja)))}
+          {t.efectivo_contado !== null && t.deja_en_caja !== null && Number(t.efectivo_contado) > Number(t.deja_en_caja) && fila("Retirado al cerrar", pesos(Number(t.efectivo_contado) - Number(t.deja_en_caja)))}
         </ul>
         {c.movimientos.length > 0 && (
           <ul className="mt-3 text-sm text-suave">

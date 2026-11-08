@@ -21,7 +21,6 @@ export function CierreCaja() {
   const [error, setError] = useState("");
   const [billetes, setBilletes] = useState<Record<string, string>>({});
   const [monedas, setMonedas] = useState("");
-  const [deja, setDeja] = useState("");
   const [notas, setNotas] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [pendientes, setPendientes] = useState(0);
@@ -37,7 +36,6 @@ export function CierreCaja() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "error");
       setDatos(d);
-      setDeja((x) => x || String(d.turno.fondo_inicial ?? ""));
       setFase(d.turno.cerrada_en ? "cerrada" : "listo");
     } catch (e) { setError((e as Error).message); setFase("error"); }
   }, [turnoId]);
@@ -54,7 +52,7 @@ export function CierreCaja() {
     try {
       const r = await fetch(`/api/caja/turno/${turnoId}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ billetes: Object.fromEntries(Object.entries(billetes).map(([k, v]) => [k, Number(v) || 0])), monedas: Number(monedas.replace(",", ".")) || 0, deja_en_caja: Number(deja.replace(/\./g, "").replace(",", ".")) || 0, notas }),
+        body: JSON.stringify({ billetes: Object.fromEntries(Object.entries(billetes).map(([k, v]) => [k, Number(v) || 0])), monedas: Number(monedas.replace(",", ".")) || 0, notas }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "error");
@@ -194,10 +192,7 @@ export function CierreCaja() {
                 <span>{diferencia === 0 ? "Coincide" : diferencia > 0 ? "Sobra" : "Falta"}</span><span>{pesos(Math.abs(diferencia))}</span>
               </p>
             </div>
-            <label className="block"><span className="etiqueta">Cuánto queda en la caja para mañana (cambio)</span>
-              <input className="campo" inputMode="decimal" value={deja} onChange={(e) => setDeja(e.target.value)} />
-              <span className="ayuda block">El resto ({pesos(Math.max(0, contado - (Number(deja.replace(/\./g, "").replace(",", ".")) || 0)))}) se retira.</span>
-            </label>
+            <p className="ayuda">Lo contado ({pesos(contado)}) queda en la caja como cambio para la próxima apertura. Si hay que llevarse plata, hacé un retiro antes de cerrar.</p>
             <label className="block"><span className="etiqueta">Notas (opcional)</span>
               <input className="campo" value={notas} onChange={(e) => setNotas(e.target.value)} placeholder={diferencia !== 0 ? "Ej: faltante por vuelto mal dado" : ""} />
             </label>

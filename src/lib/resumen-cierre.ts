@@ -45,7 +45,7 @@ export function textoResumen(d: DatosResumen): string {
     const dif = d.diferencia ?? 0;
     l.push(`Contado ${$(d.contado)} · ${dif === 0 ? "✅ coincide" : dif > 0 ? `⚠️ sobran ${$(dif)}` : `⚠️ faltan ${$(-dif)}`}`);
   }
-  if (d.deja !== null && d.contado !== null) l.push(`Queda en caja ${$(d.deja)} · se retiró ${$(d.contado - d.deja)}`);
+  if (d.deja !== null && d.contado !== null) l.push(d.contado - d.deja > 0 ? `Queda en caja ${$(d.deja)} · se retiró ${$(d.contado - d.deja)}` : `Queda en caja ${$(d.deja)}`);
   if (d.sinCobro || d.cobrosSinVenta) {
     l.push("");
     if (d.sinCobro) l.push(`⚠️ ${d.sinCobro} venta${d.sinCobro === 1 ? "" : "s"} con tarjeta/transferencia sin pago en Mercado Pago`);

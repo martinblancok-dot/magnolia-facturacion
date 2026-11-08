@@ -38,12 +38,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const billetes = Object.fromEntries(Object.entries(b.billetes ?? {}).map(([k, v]) => [k, Math.max(0, Math.floor(Number(v) || 0))]));
   const contado = totalBilletes(billetes, Math.max(0, Number(b.monedas) || 0));
-  const deja = Math.max(0, Number(b.deja_en_caja) || 0);
+  // Lo que se cuenta en el arqueo es lo que queda en la caja (la plata grande se saca antes con un retiro)
   const { error } = await db.from("turnos_caja").update({
     cerrada_en: new Date().toISOString(), cerrada_por: u.id,
     efectivo_esperado: c.resumen.efectivoEsperado, efectivo_contado: contado,
     diferencia: Math.round((contado - c.resumen.efectivoEsperado) * 100) / 100,
-    deja_en_caja: Math.min(deja, contado), billetes: { ...billetes, monedas: Number(b.monedas) || 0 },
+    deja_en_caja: contado, billetes: { ...billetes, monedas: Number(b.monedas) || 0 },
     resumen: { ...c.resumen, alertas: c.alertas, top: c.top }, notas: String(b.notas ?? "").slice(0, 500) || null,
   }).eq("id", id).is("cerrada_en", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
