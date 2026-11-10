@@ -18,6 +18,7 @@ import { numeroWhatsapp } from "@/lib/resumen-cierre";
 import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { anularPagoCC, registrarPagoCC, saldosCC } from "@/lib/supabase/cuentas";
+import { borrarCredencialesTN } from "@/lib/tiendanube";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -805,4 +806,13 @@ export async function anularPagoClienteCC(clienteId: string, pagoId: string): Pr
   try { await anularPagoCC(clienteServidor(), pagoId); } catch (e) { return { ok: false, texto: (e as Error).message }; }
   revalidatePath("/cuentas"); revalidatePath(`/cuentas/${clienteId}`);
   return { ok: true, texto: "Pago anulado." };
+}
+
+// ---------- Tienda online (Tiendanube) ----------
+
+export async function desconectarTiendanube(): Promise<Mensaje> {
+  await soloDuenio();
+  await borrarCredencialesTN(clienteServidor());
+  revalidatePath("/configuracion/tienda");
+  return { ok: true, texto: "Tienda desconectada." };
 }
