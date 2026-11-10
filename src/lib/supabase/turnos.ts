@@ -1,5 +1,6 @@
 // Cierre de caja del lado del servidor: junta ventas, movimientos y cobros de Mercado Pago del turno.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { MedioPago } from "../caja";
 import { cruzarPagos, MINUTOS_ANTES, MINUTOS_DESPUES, resumenTurno, type CobroMP, type MovimientoCaja, type VentaTurno } from "../cierre";
 import { traerCobros } from "../mercadopago";
 import { guardarCobros, traerEmisores } from "./almacen";
@@ -46,8 +47,9 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
 
   const vs = (ventas ?? []).map((v) => ({ ...v, total: Number(v.total) })) as VentaTurno[];
   const resumen = resumenTurno(Number(t.fondo_inicial), vs, (movs ?? []).map((m) => ({ tipo: m.tipo, monto: Number(m.monto) })) as MovimientoCaja[]);
+  const pagosCC = await pagosCCParaCruce(db, minutos(t.abierta_en, -MINUTOS_DESPUES), minutos(hasta, MINUTOS_ANTES));
   const cruce = cruzarPagos(
-    ((delPeriodo ?? []) as (VentaTurno & { local_id: number; terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })),
+    [...((delPeriodo ?? []) as (VentaTurno & { local_id: number; terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })), ...pagosCC],
     ((cobros ?? []) as CobroMP[]).map((c) => ({ ...c, importe: Number(c.importe) })),
   );
   const idsTurno = new Set(vs.map((v) => v.id));
@@ -79,6 +81,14 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
   };
 }
 
+/** Pagos de cuentas corrientes con transferencia/tarjeta/QR, como "ventas" para cruzarlos con los cobros de MP. */
+async function pagosCCParaCruce(db: SupabaseClient, desde: string, hasta: string): Promise<VentaTurno[]> {
+  const { data, error } = await db.from("cc_pagos").select("id, creado_en, medio, monto").eq("anulado", false).neq("medio", "efectivo")
+    .gte("creado_en", desde).lte("creado_en", hasta).limit(2000);
+  if (error) return []; // sin la migración 0026
+  return (data ?? []).map((p) => ({ id: p.id, creada_en: p.creado_en, medio_pago: p.medio as MedioPago, total: Number(p.monto) }));
+}
+
 export type Cierre = NonNullable<Awaited<ReturnType<typeof calcularCierre>>>;
 
 /**
@@ -93,10 +103,12 @@ export async function confirmarTransferenciasConCaja(db: SupabaseClient, desdeIS
     db.from("ventas").select("*").eq("anulada", false).neq("medio_pago", "efectivo")
       .gte("creada_en", minutos(desdeISO, -MINUTOS_DESPUES)).lte("creada_en", hasta).limit(5000),
   ]);
-  if (e1 || e2 || !cobros?.length || !ventas?.length) return 0;
+  if (e1 || e2 || !cobros?.length) return 0;
   if (!cobros.some((c) => c.estado === "revisar")) return 0;
+  const pagosCC = await pagosCCParaCruce(db, minutos(desdeISO, -MINUTOS_DESPUES), hasta);
+  if (!ventas?.length && !pagosCC.length) return 0;
   const cruce = cruzarPagos(
-    (ventas as (VentaTurno & { terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })),
+    [...((ventas ?? []) as (VentaTurno & { terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })), ...pagosCC],
     (cobros as CobroMP[]).map((c) => ({ ...c, importe: Number(c.importe) })),
   );
   const revisar = new Set(cobros.filter((c) => c.estado === "revisar").map((c) => c.id));

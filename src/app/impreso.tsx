@@ -27,7 +27,26 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
       <p className="t-centro t-grande">{l.nombre}</p>
       <p className="t-centro">{l.direccion} · General Alvear</p>
       <hr />
-      {tipo === "constancia" && venta.movimiento ? (
+      {tipo === "constancia" && venta.pagoCC ? (
+        <>
+          <p className="t-centro t-negrita t-grande">PAGO CUENTA CORRIENTE</p>
+          <p className="t-centro">Constancia · no válido como factura</p>
+          <hr />
+          <p>{fechaHora(venta.creada_en)}</p>
+          <p className="t-centro t-grande">{venta.pagoCC.nombre}</p>
+          <p className="t-centro t-enorme">{pesos(venta.total)}</p>
+          <p className="fila"><span>Medio</span><span>{venta.pagoCC.medio}</span></p>
+          <p className="fila t-negrita"><span>{venta.pagoCC.saldo > 0 ? "Saldo que queda debiendo" : venta.pagoCC.saldo < 0 ? "Saldo a favor" : "Cuenta saldada"}</span><span>{venta.pagoCC.saldo ? pesos(Math.abs(venta.pagoCC.saldo)) : ""}</span></p>
+          {venta.pagoCC.registro && <p><b>Recibió:</b> {venta.pagoCC.registro}</p>}
+          <p className="t-chico">Comprobante {codigo}</p>
+          <hr />
+          <div className="firma">
+            <p className="firma-linea">Firma</p>
+            <p className="firma-linea">Aclaración</p>
+            <p className="t-centro t-negrita">Recibió (Magnolia)</p>
+          </div>
+        </>
+      ) : tipo === "constancia" && venta.movimiento ? (
         <>
           <p className="t-centro t-negrita t-grande">{venta.movimiento.tipo === "retiro" ? "RETIRO DE EFECTIVO" : venta.movimiento.tipo === "gasto" ? "GASTO PAGADO CON LA CAJA" : "INGRESO DE EFECTIVO"}</p>
           <p className="t-centro">Constancia · no válido como factura</p>
@@ -75,7 +94,18 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
             </div>
           ))}
           <hr />
-          {venta.cambio ? (
+          {venta.cuenta ? (
+            <>
+              {venta.cambio && <p className="t-centro t-negrita">CAMBIO de la venta {venta.cambio.codigo}</p>}
+              {venta.cambio && <p className="fila"><span>Lo devuelto</span><span>−{pesos(venta.cambio.credito)}</span></p>}
+              <p className="fila t-grande"><span>{venta.total < 0 ? "SE DESCUENTA" : "TOTAL"}</span><span>{pesos(Math.abs(venta.total))}</span></p>
+              <p className="fila t-negrita"><span>A cuenta corriente</span><span>{venta.cuenta.nombre}</span></p>
+              {venta.cuenta.saldo !== null && <p className="fila"><span>{venta.cuenta.saldo >= 0 ? "Saldo de la cuenta" : "Saldo a favor"}</span><span>{pesos(Math.abs(venta.cuenta.saldo))}</span></p>}
+              <div className="firma">
+                <p className="firma-linea">Firma de la clienta</p>
+              </div>
+            </>
+          ) : venta.cambio ? (
             <>
               <p className="t-centro t-negrita">CAMBIO de la venta {venta.cambio.codigo}</p>
               <p className="fila"><span>Crédito por lo devuelto</span><span>{pesos(venta.cambio.credito)}</span></p>

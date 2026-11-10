@@ -1,7 +1,7 @@
 import { descuentosPromo, montoDescuentoManual, type DescuentoManual, type LineaDescuento, type Promo, type UnidadPromo } from "./promos";
 // Lógica de la caja (se usa en el navegador y en el servidor).
 
-export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr" | "giftcard" | "cambio";
+export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr" | "giftcard" | "cambio" | "cuenta";
 export type TipoPrecio = "efectivo" | "diez" | "lista";
 
 // efectivo: precio con 15% de la planilla · diez: 10% sobre lista · lista: sin descuento
@@ -15,6 +15,8 @@ export const MEDIOS: { id: MedioPago; nombre: string; precio: TipoPrecio; oculto
   { id: "qr", nombre: "QR Mercado Pago", precio: "lista", oculto: true },
   { id: "giftcard", nombre: "Gift card", precio: "lista", oculto: true },
   { id: "cambio", nombre: "Cambio", precio: "lista", oculto: true },
+  // Solo para Martín y Sofi (la caja lo muestra únicamente a los dueños)
+  { id: "cuenta", nombre: "Cuenta corriente", precio: "lista", oculto: true },
 ];
 export const MEDIOS_CAJA = MEDIOS.filter((m) => !m.oculto);
 export const nombreMedio = (id: string) => MEDIOS.find((m) => m.id === id)?.nombre ?? id;
@@ -167,6 +169,8 @@ export interface VentaParaSubir {
   /** Cambio: venta original y crédito por lo que se devolvió. */
   cambio_de?: string | null;
   credito_cambio?: number;
+  /** Venta a cuenta corriente: la clienta que la debe. */
+  cliente_cc_id?: string | null;
   /** Pago dividido en dos medios (ej. parte en efectivo y el resto por transferencia). */
   pagos?: Pago[] | null;
   /** Venta de una gift card nueva: se crea al subir la venta. */
@@ -268,6 +272,10 @@ export interface CambioEnCurso {
   codigo: string;
   medio_precio: MedioPago; // lo nuevo va al precio del medio con que se pagó la venta original
   devoluciones: Devolucion[];
+  /** La venta original fue a cuenta corriente: el cambio se ajusta en la cuenta de la clienta. */
+  cliente_cc?: { id: string; nombre: string } | null;
+  /** Dentro de los días de cambio (si no, lo devuelto ya no se descuenta de la cuenta). */
+  enPlazo?: boolean;
 }
 
 export const creditoCambio = (c: CambioEnCurso) => redondear(c.devoluciones.reduce((s, d) => s + d.precio * d.cantidad, 0));
@@ -298,6 +306,22 @@ export function armarVentaCambio(
     cambio_de: c.venta_id, credito_cambio: r.credito,
     giftcard_nueva: r.aFavor > 0 ? { id: idGiftcard, monto: r.aFavor, medio: c.medio_precio } : null,
   };
+}
+
+/**
+ * Cambio de una venta hecha a cuenta corriente: lo devuelto se descuenta de la deuda y lo nuevo se suma,
+ * a precio de lista. El total puede ser negativo (la deuda baja). No genera gift card.
+ */
+export function armarVentaCambioCuenta(
+  nuevos: ItemCarrito[], c: CambioEnCurso, cliente: string, local: number, terminal: string, id: string, ahora = new Date(), ext?: Extras,
+): VentaParaSubir {
+  const credito = creditoCambio(c);
+  const base = armarVenta(nuevos, "cuenta", local, terminal, null, id, ahora, ext);
+  const lineas = [...base.items];
+  for (const d of c.devoluciones) {
+    lineas.push({ producto_id: d.producto_id, barcode: d.barcode, sku: d.sku, nombre: `Devolución: ${d.nombre}`, cantidad: -d.cantidad, precio_unitario: d.precio, total: redondear(-d.cantidad * d.precio) });
+  }
+  return { ...base, items: lineas, medio_pago: "cuenta", total: redondear(base.total - credito), paga_con: null, cambio_de: c.venta_id, credito_cambio: credito, cliente_cc_id: cliente };
 }
 
 /** Venta de una gift card: se cobra el valor de la tarjeta, sin descuento, con el medio que sea. */
@@ -350,6 +374,10 @@ export function validarVenta(v: unknown): string | null {
   if (esCambio && gcMonto > 0) return "un cambio no se paga con gift card";
   if (x.medio_pago === "giftcard" && !(gcMonto > 0)) return "falta la gift card";
   if (x.medio_pago === "cambio" && (!esCambio || x.total !== 0)) return "cambio inválido";
+  if (x.medio_pago === "cuenta" && !uuid.test(String(x.cliente_cc_id))) return "falta la clienta de la cuenta corriente";
+  if (x.medio_pago !== "cuenta" && x.cliente_cc_id) return "cuenta corriente inválida";
+  if (x.medio_pago === "cuenta" && (gcMonto > 0 || x.giftcard_nueva || x.pagos)) return "la cuenta corriente no se combina con gift card ni pago dividido";
+  if (Number(x.total) < 0 && !(esCambio && x.medio_pago === "cuenta")) return "total inválido";
   if (x.pagos != null) {
     const p = x.pagos;
     const validos = MEDIOS_CAJA.map((m) => m.id as string);

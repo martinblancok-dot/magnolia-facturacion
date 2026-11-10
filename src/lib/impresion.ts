@@ -33,6 +33,10 @@ export interface VentaImpresa {
   cambio?: { codigo: string; credito: number } | null;
   /** Retiro, gasto o ingreso de efectivo (constancia para firmar). */
   movimiento?: { tipo: "retiro" | "gasto" | "ingreso"; motivo: string; registro: string | null } | null;
+  /** Venta (o cambio) a cuenta corriente: de quién es y cuánto debe después. */
+  cuenta?: { nombre: string; saldo: number | null } | null;
+  /** Pago de una cuenta corriente (constancia para la clienta). */
+  pagoCC?: { nombre: string; medio: string; saldo: number; registro: string | null } | null;
 }
 
 export type TipoImpreso = "recibo" | "cambio" | "giftcard" | "constancia";

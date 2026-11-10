@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { validarVenta, type VentaParaSubir } from "@/lib/caja";
 import { clienteServidor } from "@/lib/supabase/almacen";
+import { DIAS_CAMBIO, venceCambio } from "@/lib/impresion";
+import { saldosCC } from "@/lib/supabase/cuentas";
 import { perfilDe, usuarioDeLaSesion } from "@/lib/supabase/sesion";
 
 export async function POST(req: Request) {
@@ -30,8 +32,35 @@ export async function POST(req: Request) {
         if (a.estado === "aprobada") await db.from("autorizaciones").update({ estado: "usada", datos: { ...a.datos, venta_id: id } }).eq("id", aut!);
       }
     }
+    // Cambio de una venta a cuenta corriente: se hace solo contra la cuenta (no se devuelve plata que no se pagó)
+    if (x.cambio_de) {
+      const { data: orig } = await db.from("ventas").select("*").eq("id", x.cambio_de).maybeSingle();
+      const ccOrig = (orig as { cliente_cc_id?: string | null } | null)?.cliente_cc_id ?? null;
+      if (ccOrig && (x.medio_pago !== "cuenta" || x.cliente_cc_id !== ccOrig)) { rechazadas.push({ id, motivo: "esa venta fue a cuenta corriente: el cambio lo hace Martín o Sofi contra la cuenta" }); continue; }
+      if (!ccOrig && x.medio_pago === "cuenta") { rechazadas.push({ id, motivo: "esa venta no fue a cuenta corriente" }); continue; }
+      if (ccOrig && Number(x.total) < 0 && orig && Date.now() > venceCambio(orig.creada_en).getTime()) {
+        const { data: ya } = await db.from("ventas").select("id").eq("id", id).maybeSingle();
+        if (!ya) { rechazadas.push({ id, motivo: `pasaron más de ${DIAS_CAMBIO} días: lo devuelto ya no se descuenta de la cuenta` }); continue; }
+      }
+    }
+    // Cuenta corriente: solo Martín y Sofi, y no más del doble del límite de la clienta
+    if (x.medio_pago === "cuenta") {
+      if (duenio === null) duenio = (await perfilDe(u.id)).rol === "duenio";
+      if (!duenio) { rechazadas.push({ id, motivo: "solo Martín y Sofi pueden vender a cuenta corriente" }); continue; }
+      const { data: ya } = await db.from("ventas").select("id").eq("id", id).maybeSingle();
+      if (!ya && Number(x.total) > 0) {
+        const { data: cl } = await db.from("clientes_cc").select("limite, activo").eq("id", x.cliente_cc_id!).maybeSingle();
+        if (!cl || !cl.activo) { rechazadas.push({ id, motivo: "la clienta de la cuenta corriente no existe" }); continue; }
+        const debe = (await saldosCC(db, [x.cliente_cc_id!])).get(x.cliente_cc_id!)?.debe ?? 0;
+        if (debe + Number(x.total) > 2 * Number(cl.limite)) { rechazadas.push({ id, motivo: `la cuenta pasaría el máximo de ${2 * Number(cl.limite)}` }); continue; }
+      }
+    }
     const r = await db.rpc("registrar_venta", { v, usuario: u.id });
     if (r.error) { rechazadas.push({ id, motivo: r.error.message }); continue; }
+    if (x.medio_pago === "cuenta") {
+      const r3 = await db.from("ventas").update({ cliente_cc_id: x.cliente_cc_id }).eq("id", id);
+      if (r3.error) { await db.rpc("anular_venta", { venta: id, usuario: u.id }); rechazadas.push({ id, motivo: r3.error.message }); continue; }
+    }
     if (Array.isArray(x.pagos) && x.pagos.length === 2) {
       const r2 = await db.from("ventas").update({ pagos: x.pagos.map((p) => ({ medio: p.medio, monto: Number(p.monto) })) }).eq("id", id);
       if (r2.error) console.error("pago dividido sin guardar (¿falta la migración 0019?)", r2.error.message);

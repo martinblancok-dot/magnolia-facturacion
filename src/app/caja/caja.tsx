@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  agregar, armarVenta, armarVentaCambio, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
+  agregar, armarVenta, armarVentaCambio, armarVentaCambioCuenta, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
   armarVentaDividida, cobroDividido, porCodigo,
 } from "@/lib/caja";
@@ -35,7 +35,9 @@ interface Carrito {
   cambio?: CambioEnCurso | null; // cambio o devolución de una venta anterior
   descuento?: DescuentoManual | null;
   dividir?: { monto: string; resto: MedioPago } | null; // pago en dos medios
+  cc?: ClienteCaja | null; // venta a cuenta corriente: la clienta
 }
+type ClienteCaja = { id: string; nombre: string; telefono?: string | null; limite: number; debe: number };
 const carritoNuevo = (): Carrito => ({ id: crypto.randomUUID(), items: [], medio: "efectivo", pagaCon: "", modoGc: false, montoGc: "", gc: null, codigoGc: "", medioResto: "efectivo" });
 const vacio = (c: Carrito) => c.items.length === 0 && !c.modoGc && !c.gc && !c.cambio;
 
@@ -85,11 +87,16 @@ export function Caja() {
   const [renombrando, setRenombrando] = useState<string | null>(null);
   // Cambio: buscar la venta original y elegir qué devuelve
   type VentaCambio = { id: string; creada_en: string; medio_pago: string; medio_precio: MedioPago; vence: string; enPlazo: boolean;
-    items: { n: number; producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; devuelto: number; puede: number }[] };
+    items: { n: number; producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; devuelto: number; puede: number }[];
+    cliente_cc?: { id: string; nombre: string } | null };
   const [cb, setCb] = useState<null | { codigo: string; cargando: boolean; error?: string; venta?: VentaCambio; cant: Record<number, number> }>(null);
   // Descuento manual
   const [descForm, setDescForm] = useState<null | { tipo: "pct" | "monto"; valor: string; motivo: string; pedido?: string; estado?: string }>(null);
   const [soyDuenio, setSoyDuenio] = useState(false);
+  // Cuentas corrientes (solo dueños): clientas para elegir y el cobro de una cuenta
+  const [clientesCC, setClientesCC] = useState<ClienteCaja[] | null>(null);
+  const [buscaCC, setBuscaCC] = useState("");
+  const [pagoCC, setPagoCC] = useState<null | { cliente: ClienteCaja | null; monto: string; medio: string; constancia: boolean; enviando?: boolean }>(null);
 
   // ---- Ventas abiertas (pestañas). Se guardan en la compu por si se recarga la página.
   const [carritos, setCarritos] = useState<Carrito[]>(() => [carritoNuevo()]);
@@ -397,20 +404,28 @@ export function Caja() {
   const ext: Extras = { promos: catalogo?.promos ?? [], descuento: c.descuento ?? null };
   const conGc = medio === "giftcard" && !cambio;
   const cgc = conGc && gc ? cobroConGiftcard(items, gc, medioResto, ext) : null;
-  const rc = cambio ? cobroCambio(items, cambio, medioResto, ext) : null;
+  const cambioCC = cambio?.cliente_cc ?? null; // cambio de una venta a cuenta corriente
+  const rc = cambio && !cambioCC ? cobroCambio(items, cambio, medioResto, ext) : null;
+  const enCuenta = medio === "cuenta" && !cambio && !modoGc;
   const medioPrecio: MedioPago = cambio ? cambio.medio_precio : conGc ? gc?.medio_origen ?? "cuotas" : medio;
   const t = totales(items, medioPrecio, ext);
   const montoNuevaGc = Number(montoGc.replace(/\./g, "").replace(",", ".")) || 0;
   // Pago en dos medios: una parte con el medio elegido y el resto con otro, cada parte a su precio
-  const dividir = !modoGc && !cambio && !conGc && items.length > 0 ? c.dividir ?? null : null;
+  const dividir = !modoGc && !cambio && !conGc && !enCuenta && items.length > 0 ? c.dividir ?? null : null;
+  // Cuenta corriente: lo que se suma (o se descuenta, en un cambio) y los topes de la clienta
+  const netoCC = cambioCC ? redondear(t.total - creditoCambio(cambio!)) : enCuenta ? t.total : 0;
+  const ccCliente = enCuenta ? c.cc ?? null : null;
+  const ccDespues = ccCliente ? redondear(ccCliente.debe + t.total) : 0;
+  const ccSupera = !!ccCliente && ccDespues > ccCliente.limite;
+  const ccBloquea = !!ccCliente && ccDespues > 2 * ccCliente.limite;
   const montoDiv = dividir ? Number(dividir.monto.replace(/\./g, "").replace(",", ".")) || 0 : 0;
   const div = dividir ? cobroDividido(items, medio, montoDiv, dividir.resto, ext) : null;
   const setDividir = setter("dividir");
   // lo que se cobra en la caja ahora (con la gift card, solo la diferencia)
-  const aCobrar = modoGc ? montoNuevaGc : rc ? rc.falta : conGc ? cgc?.falta ?? 0 : div ? div.total : t.total;
+  const aCobrar = modoGc ? montoNuevaGc : cambioCC ? Math.abs(netoCC) : rc ? rc.falta : conGc ? cgc?.falta ?? 0 : div ? div.total : t.total;
   // lo que se paga en efectivo (para el vuelto)
   const enEfectivo = div ? (medio === "efectivo" ? div.usa : dividir!.resto === "efectivo" ? div.falta : 0) : aCobrar;
-  const medioEfectivo = dividir ? medio === "efectivo" || dividir.resto === "efectivo" : modoGc ? medio === "efectivo" : rc ? rc.falta > 0 && medioResto === "efectivo" : conGc ? (cgc?.falta ?? 0) > 0 && medioResto === "efectivo" : medio === "efectivo";
+  const medioEfectivo = enCuenta || cambioCC ? false : dividir ? medio === "efectivo" || dividir.resto === "efectivo" : modoGc ? medio === "efectivo" : rc ? rc.falta > 0 && medioResto === "efectivo" : conGc ? (cgc?.falta ?? 0) > 0 && medioResto === "efectivo" : medio === "efectivo";
   const pago = Number(pagaCon.replace(/\./g, "").replace(",", ".")) || 0;
   const vuelto = medioEfectivo && pago > 0 && (!dividir || div) ? redondear(pago - enEfectivo) : null;
 
@@ -483,7 +498,8 @@ export function Caja() {
       producto_id: i.producto_id, barcode: i.barcode, sku: i.sku, nombre: i.nombre, cantidad: cb.cant[i.n], precio: i.precio_unitario,
     }));
     if (!devoluciones.length) return;
-    setCambio({ venta_id: v.id, codigo: codigoVenta(v.id), medio_precio: v.medio_precio, devoluciones });
+    if (v.cliente_cc && !soyDuenio) { setAviso({ ok: false, texto: `Esa venta fue a la cuenta corriente de ${v.cliente_cc.nombre}: el cambio lo hacen Martín o Sofi.` }); return; }
+    setCambio({ venta_id: v.id, codigo: codigoVenta(v.id), medio_precio: v.medio_precio, devoluciones, cliente_cc: v.cliente_cc ?? null, enPlazo: v.enPlazo });
     setGc(null); setModoGc(false); setMedioResto("efectivo");
     if (medio === "giftcard") setMedio("efectivo");
     setCb(null); setAviso(null); enfocar();
@@ -556,10 +572,77 @@ export function Caja() {
     }
   };
 
+  // ---- Cuentas corrientes (solo Martín y Sofi). Hace falta internet: el saldo se controla en el servidor.
+  const cargarClientesCC = async () => {
+    try {
+      const r = await fetch("/api/cc/clientes", { cache: "no-store" });
+      const d = await r.json();
+      if (!r.ok) { setAviso({ ok: false, texto: d.error ?? "No se pudieron traer las cuentas corrientes." }); return null; }
+      setClientesCC(d.clientes);
+      return d.clientes as ClienteCaja[];
+    } catch {
+      setAviso({ ok: false, texto: "Sin internet no se pueden ver las cuentas corrientes." });
+      return null;
+    }
+  };
+  /** Sube una venta a cuenta corriente y devuelve el saldo nuevo de la clienta (o null si no se pudo). */
+  const subirVentaCuenta = async (v: VentaParaSubir): Promise<{ ok: true; saldo: number | null } | { ok: false }> => {
+    setCobrando(true);
+    try {
+      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
+      if (r.status === 401) { setEstado("sin-sesion"); setAviso({ ok: false, texto: "Iniciá sesión de nuevo." }); return { ok: false }; }
+      const d = (await r.json()) as { recibidas: string[]; rechazadas: { motivo: string }[] };
+      if (!d.recibidas?.includes(v.id)) { setAviso({ ok: false, texto: `No se pudo anotar en la cuenta: ${d.rechazadas?.[0]?.motivo ?? "error del servidor"}` }); return { ok: false }; }
+      const lista = await cargarClientesCC();
+      return { ok: true, saldo: lista?.find((x) => x.id === v.cliente_cc_id)?.debe ?? null };
+    } catch {
+      setAviso({ ok: false, texto: "Sin internet no se puede vender a cuenta corriente. Probá de nuevo cuando vuelva la conexión." });
+      return { ok: false };
+    } finally {
+      setCobrando(false);
+    }
+  };
+  const cobrarCuenta = async () => {
+    if (!local || !ccCliente || items.length === 0 || ccBloquea) return;
+    const v = { ...armarVenta(items, "cuenta", local, idTerminal(), null, crypto.randomUUID(), new Date(), ext), cliente_cc_id: ccCliente.id, turno_id: turno?.id ?? null };
+    const r = await subirVentaCuenta(v);
+    if (r.ok) terminarVenta(v, { cuenta: { nombre: ccCliente.nombre, saldo: r.saldo } });
+  };
+  const cobrarCambioCuenta = async () => {
+    if (!local || !cambio || !cambioCC) return;
+    if (netoCC < 0 && cambio.enPlazo === false) { setAviso({ ok: false, texto: "Pasaron más de 15 días: lo devuelto ya no se descuenta de la cuenta. Solo puede cambiarlo por algo de igual o mayor valor." }); return; }
+    const v = { ...armarVentaCambioCuenta(items, cambio, cambioCC.id, local, idTerminal(), crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
+    const r = await subirVentaCuenta(v);
+    if (r.ok) terminarVenta(v, { cambio: { codigo: cambio.codigo, credito: creditoCambio(cambio) }, cuenta: { nombre: cambioCC.nombre, saldo: r.saldo } });
+  };
+  const registrarPagoCC = async () => {
+    if (!pagoCC?.cliente || !turno) return;
+    const monto = Number(pagoCC.monto.replace(/\./g, "").replace(",", ".")) || 0;
+    if (!(monto > 0)) { setAviso({ ok: false, texto: "Poné cuánto paga." }); return; }
+    setPagoCC({ ...pagoCC, enviando: true });
+    try {
+      await subir(); // que el servidor ya tenga esta caja, así el efectivo entra en el arqueo
+      const r = await fetch("/api/cc/pagos", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cliente_id: pagoCC.cliente.id, monto, medio: pagoCC.medio, turno_id: turno.id }) });
+      const d = await r.json();
+      if (!r.ok) { setAviso({ ok: false, texto: d.error ?? "No se pudo registrar el pago." }); setPagoCC({ ...pagoCC, enviando: false }); return; }
+      if (pagoCC.constancia) imprimir({ id: d.id, local_id: turno.local_id, creada_en: new Date().toISOString(), medio: nombreMedio(pagoCC.medio as MedioPago), total: monto, items: [],
+        pagoCC: { nombre: d.cliente, medio: nombreMedio(pagoCC.medio as MedioPago), saldo: d.saldo, registro: miNombre } }, "constancia");
+      const noEntro = pagoCC.medio === "efectivo" && !d.entroACaja;
+      setAviso({ ok: !noEntro, texto: `Pago de ${d.cliente} por ${pesos(monto)} anotado. ${d.saldo > 0 ? `Le queda debiendo ${pesos(d.saldo)}.` : d.saldo < 0 ? `Le queda ${pesos(-d.saldo)} a favor.` : "La cuenta quedó en cero."}${noEntro ? " ⚠ El efectivo no se sumó a esta caja: anotalo como ingreso." : ""}` });
+      setPagoCC(null);
+      cargarClientesCC();
+    } catch {
+      setAviso({ ok: false, texto: "Sin internet no se pueden cobrar cuentas corrientes." });
+      setPagoCC({ ...pagoCC, enviando: false });
+    }
+  };
+
   const cobrar = async () => {
     if (modoGc) return venderGiftcard();
-    if (cambio) return cobrarCambio();
+    if (cambio) return cambioCC ? cobrarCambioCuenta() : cobrarCambio();
     if (conGc) return cobrarConGiftcard();
+    if (enCuenta) return cobrarCuenta();
     if (!local || items.length === 0) return;
     if (dividir) {
       if (!div) { setAviso({ ok: false, texto: `Poné cuánto paga en ${nombreMedio(medio).toLowerCase()} (menos que el total) y con qué paga el resto.` }); return; }
@@ -683,7 +766,10 @@ export function Caja() {
     return [...new Set([enEfectivo, arriba(1000), arriba(5000), arriba(10000), arriba(20000)])].filter((x) => x >= enEfectivo).slice(0, 4);
   })();
   const hayCarrito = items.length > 0 || modoGc || !!cambio;
-  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0 : cambio ? cambio.devoluciones.length > 0 : items.length > 0 && (!conGc || !!gc) && (!dividir || !!div));
+  const listoParaCobrar = !cobrando && (modoGc ? montoNuevaGc > 0
+    : cambio ? cambio.devoluciones.length > 0 && (!cambioCC || (soyDuenio && (netoCC >= 0 || cambio.enPlazo !== false)))
+    : enCuenta ? items.length > 0 && !!ccCliente && !ccBloquea
+    : items.length > 0 && (!conGc || !!gc) && (!dividir || !!div));
   const unidades = (x: Carrito) => x.items.reduce((s2, y) => s2 + y.cantidad, 0);
   const totalDe = (x: Carrito) => x.modoGc ? (Number(x.montoGc.replace(/\./g, "").replace(",", ".")) || 0)
     : totales(x.items, x.medio === "giftcard" ? x.gc?.medio_origen ?? "cuotas" : x.medio).total;
@@ -708,6 +794,8 @@ export function Caja() {
             ? <span className="rounded-full bg-marca-claro px-2.5 py-1 font-semibold text-marca">{pendientes} sin subir</span>
             : estado === "conectado" && <span className="rounded-full bg-green-50 px-2.5 py-1 font-semibold text-green-800">✓ Al día</span>}
         </span>
+        {soyDuenio && <button className="boton-borde !border-linea !px-3 !text-tinta" onClick={() => { setPagoCC((x) => (x ? null : { cliente: null, monto: "", medio: "efectivo", constancia: true })); setBuscaCC(""); if (!clientesCC) cargarClientesCC(); }}>
+          <span className="sm:hidden">Cuentas</span><span className="hidden sm:inline">Cobrar cuenta</span></button>}
         <button className="boton-borde !border-linea !px-3 !text-tinta" onClick={() => setMovForm((x) => !x)}><span className="sm:hidden">Retiro</span><span className="hidden sm:inline">Retiro / gasto</span></button>
         <Link href={`/caja/cierre?turno=${turno.id}`} className="boton-borde !px-3"><span className="sm:hidden">Cerrar</span><span className="hidden sm:inline">Cerrar caja</span></Link>
       </header>
@@ -732,6 +820,30 @@ export function Caja() {
           <button className="boton">Anotar</button>
           <button type="button" className="text-sm text-suave underline" onClick={() => setMovForm(false)}>Cancelar</button>
         </form>
+      )}
+
+      {pagoCC && (
+        <div className="space-y-2 border-b border-linea bg-marca-claro px-4 py-3">
+          <p className="text-sm font-semibold">📒 Cobrar una cuenta corriente</p>
+          {!pagoCC.cliente ? (
+            <ElegirClienta clientes={clientesCC} busca={buscaCC} setBusca={setBuscaCC} onElegir={(cl) => setPagoCC({ ...pagoCC, cliente: cl, monto: cl.debe > 0 ? String(cl.debe) : "" })} />
+          ) : (
+            <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); registrarPagoCC(); }}>
+              <p className="basis-full text-sm"><b>{pagoCC.cliente.nombre}</b> · debe <b>{pesos(pagoCC.cliente.debe)}</b>{" "}
+                <button type="button" className="text-xs text-suave underline" onClick={() => setPagoCC({ ...pagoCC, cliente: null })}>cambiar</button></p>
+              <label className="w-36"><span className="etiqueta">Paga</span>
+                <input className="campo" inputMode="decimal" required autoFocus value={pagoCC.monto} onChange={(e) => setPagoCC({ ...pagoCC, monto: e.target.value })} /></label>
+              <label><span className="etiqueta">Con</span>
+                <select className="campo" value={pagoCC.medio} onChange={(e) => setPagoCC({ ...pagoCC, medio: e.target.value })}>
+                  {(["efectivo", "transferencia", "debito", "credito", "cuotas", "qr"] as const).map((m) => <option key={m} value={m}>{nombreMedio(m)}</option>)}
+                </select></label>
+              <label className="flex items-center gap-1.5 self-center text-sm"><input type="checkbox" checked={pagoCC.constancia} onChange={(e) => setPagoCC({ ...pagoCC, constancia: e.target.checked })} /> Imprimir constancia</label>
+              <button className="boton" disabled={pagoCC.enviando}>{pagoCC.enviando ? "Anotando…" : "Anotar pago"}</button>
+              <button type="button" className="text-sm text-suave underline" onClick={() => setPagoCC(null)}>Cancelar</button>
+              {pagoCC.medio === "efectivo" && <p className="basis-full text-xs text-suave">El efectivo entra en esta caja y aparece en el cierre como ingreso.</p>}
+            </form>
+          )}
+        </div>
       )}
 
       <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-3 md:p-4 lg:grid lg:grid-cols-[minmax(0,1fr)_420px] lg:overflow-hidden">
@@ -873,7 +985,7 @@ export function Caja() {
               <>
                 {cambio && (
                   <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                    <span>↺ Cambio de la venta <b>{cambio.codigo}</b> · lo nuevo va a precio {nombreMedio(cambio.medio_precio).toLowerCase()}</span>
+                    <span>↺ Cambio de la venta <b>{cambio.codigo}</b> · {cambio.cliente_cc ? <>cuenta corriente de <b>{cambio.cliente_cc.nombre}</b> · lo nuevo va a precio de lista</> : <>lo nuevo va a precio {nombreMedio(cambio.medio_precio).toLowerCase()}</>}</span>
                     <button className="ml-auto underline" onClick={() => setCambio(null)}>Quitar cambio</button>
                   </div>
                 )}
@@ -888,7 +1000,7 @@ export function Caja() {
                       <span className="font-semibold tabular-nums">−{pesos(d.precio * d.cantidad)}</span>
                     </li>
                   ))}
-                  {cambio && items.length === 0 && <li className="px-4 py-4 text-sm text-suave">Escaneá lo que se lleva en cambio. Si no se lleva nada, cobrá así y el saldo a favor queda en una gift card.</li>}
+                  {cambio && items.length === 0 && <li className="px-4 py-4 text-sm text-suave">{cambio.cliente_cc ? "Escaneá lo que se lleva en cambio. Si no se lleva nada, lo devuelto se descuenta de su cuenta." : "Escaneá lo que se lleva en cambio. Si no se lleva nada, cobrá así y el saldo a favor queda en una gift card."}</li>}
                   {items.map((it, i) => (
                     <li key={`${it.producto_id ?? "v"}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_120px_110px_36px]">
                       <span className="min-w-0 basis-full sm:basis-auto">
@@ -1016,6 +1128,16 @@ export function Caja() {
               </div>
             )}
 
+            {cambio && cambioCC && (
+              <div className="space-y-1.5 rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="flex justify-between"><span>Lo devuelto</span><b className="tabular-nums">−{pesos(creditoCambio(cambio))}</b></p>
+                <p className="flex justify-between"><span>Lo nuevo (precio de lista)</span><b className="tabular-nums">{pesos(t.total)}</b></p>
+                <p className="flex justify-between border-t border-amber-200 pt-1 text-base"><span>{netoCC > 0 ? "Se suma a la cuenta de" : netoCC < 0 ? "Se descuenta de la cuenta de" : "Cambio justo · cuenta de"} {cambioCC.nombre}</span><b className="tabular-nums">{netoCC ? pesos(Math.abs(netoCC)) : ""}</b></p>
+                {!soyDuenio && <p className="font-semibold text-red-800">Los cambios de cuenta corriente los hacen Martín o Sofi.</p>}
+                {netoCC < 0 && cambio.enPlazo === false && <p className="font-semibold text-red-800">Pasaron más de 15 días: lo devuelto ya no se descuenta de la cuenta. Solo puede cambiarlo por algo de igual o mayor valor.</p>}
+              </div>
+            )}
+
             {cambio && rc && (
               <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
                 <p className="flex justify-between"><span>Crédito por lo devuelto</span><b className="tabular-nums">{pesos(rc.credito)}</b></p>
@@ -1054,6 +1176,14 @@ export function Caja() {
                     </button>
                   );
                 })}
+                {soyDuenio && !modoGc && (
+                  <button onClick={() => { setMedio("cuenta"); setGc(null); setDividir(null); setAviso(null); if (!clientesCC) cargarClientesCC(); }}
+                    className={`rounded-xl border-2 px-2.5 py-1.5 text-left leading-tight transition ${enCuenta ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
+                    <span className="block truncate text-xs font-semibold">📒 Cuenta cte.</span>
+                    {items.length > 0 ? <span className={`mt-0.5 block text-sm font-semibold tabular-nums ${enCuenta ? "text-white/90" : "text-tinta/70"}`}>{pesos(totales(items, "cuenta", ext).total).replace(",00", "")}</span>
+                      : <span className={`mt-0.5 block text-xs ${enCuenta ? "text-white/85" : "text-suave"}`}>Precio de lista</span>}
+                  </button>
+                )}
                 {!modoGc && (
                   <button onClick={() => { setMedio("giftcard"); setAviso(null); }}
                     className={`rounded-xl border-2 px-2.5 py-1.5 text-left leading-tight transition ${conGc ? "border-marca bg-marca text-white" : "border-linea bg-white hover:border-marca/50"}`}>
@@ -1062,7 +1192,7 @@ export function Caja() {
                   </button>
                 )}
               </div>
-              {!modoGc && !conGc && items.length > 0 && !dividir && (
+              {!modoGc && !conGc && !enCuenta && items.length > 0 && !dividir && (
                 <button className="mt-1.5 text-sm text-marca underline" onClick={() => { setDividir({ monto: "", resto: medio === "efectivo" ? "transferencia" : "efectivo" }); setAviso(null); }}>
                   + Pagar con dos medios
                 </button>
@@ -1098,6 +1228,23 @@ export function Caja() {
                 ) : montoDiv > 0 ? (
                   <p className="text-sm text-amber-900">Tiene que ser menos que el total en {nombreMedio(medio).toLowerCase()} ({pesos(t.total)}).</p>
                 ) : null}
+              </div>
+            )}
+
+            {enCuenta && (
+              <div className="space-y-2 rounded-xl bg-marca-claro p-3 text-sm">
+                {!ccCliente ? (
+                  <ElegirClienta clientes={clientesCC} busca={buscaCC} setBusca={setBuscaCC} onElegir={(cl) => { cambiar({ cc: cl, nombre: c.nombre || cl.nombre }); setBuscaCC(""); }} />
+                ) : (
+                  <>
+                    <p className="flex items-center justify-between"><span>A la cuenta de <b>{ccCliente.nombre}</b></span>
+                      <button className="text-xs text-suave underline" onClick={() => cambiar({ cc: null })}>cambiar</button></p>
+                    <p className="flex justify-between"><span>Debe ahora</span><span className="tabular-nums">{pesos(ccCliente.debe)}</span></p>
+                    {items.length > 0 && <p className="flex justify-between font-semibold"><span>Va a deber</span><span className="tabular-nums">{pesos(ccDespues)}</span></p>}
+                    {ccBloquea ? <p className="rounded-lg bg-red-100 px-2 py-1.5 font-semibold text-red-800">⛔ Pasaría el máximo de {pesos(2 * ccCliente.limite)} (el doble del límite). Primero tiene que pagar algo.</p>
+                      : ccSupera ? <p className="rounded-lg bg-amber-100 px-2 py-1.5 font-semibold text-amber-900">⚠ Pasa el límite de {pesos(ccCliente.limite)}. Se puede anotar igual (bloquea en {pesos(2 * ccCliente.limite)}).</p> : null}
+                  </>
+                )}
               </div>
             )}
 
@@ -1177,8 +1324,10 @@ export function Caja() {
                   <button aria-label="Cerrar" className="ml-auto text-xl leading-none text-green-900/60 hover:text-green-900" onClick={() => setUltima(null)}>×</button>
                 </p>
                 <p className="text-sm text-green-900">
-                  {ultima.cambio
+                  {ultima.cambio && !ultima.cuenta
                     ? <>{ultima.total > 0 ? <>Pagó la diferencia: {pesos(ultima.total)} en {ultima.medio}.</> : ultima.giftcard_nueva ? <>Saldo a favor en la gift card <b>{ultima.giftcard_nueva.codigo}</b>: <b>{pesos(ultima.giftcard_nueva.monto)}</b>. Imprimila y entregásela.</> : "Cambio justo, sin diferencia."}</>
+                    : ultima.cuenta
+                    ? <>{ultima.total < 0 ? <>Se descontó {pesos(-ultima.total)} de la cuenta de</> : <>{pesos(ultima.total)} a la cuenta de</>} <b>{ultima.cuenta.nombre}</b>.{ultima.cuenta.saldo !== null ? <> Debe en total {pesos(ultima.cuenta.saldo)}.</> : null} Imprimí el recibo para que lo firme.</>
                     : ultima.giftcard
                     ? <>{pesos(ultima.giftcard.usado)} con gift card{ultima.total > 0 ? <> + {pesos(ultima.total)} en {ultima.medio}</> : null}. Saldo que le queda: <b>{pesos(ultima.giftcard.saldo ?? 0)}</b></>
                     : ultima.pagos?.length
@@ -1211,13 +1360,39 @@ export function Caja() {
           <div className="sticky bottom-0 rounded-b-2xl border-t border-linea bg-white p-3 md:p-4">
             <button className="flex w-full items-center justify-between rounded-2xl bg-marca px-5 py-3 text-white shadow-sm transition hover:opacity-95 disabled:opacity-40" onClick={cobrar} disabled={!listoParaCobrar}>
               <span className="text-lg font-semibold">
-                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : rc ? (rc.falta > 0 ? "Cobrar diferencia" : rc.aFavor > 0 ? "Confirmar y dar gift card" : "Confirmar cambio") : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : dividir ? "Cobrar en dos medios" : "Cobrar"}
+                {cobrando ? "Cobrando…" : modoGc ? "Cobrar gift card" : cambioCC ? "Confirmar cambio en la cuenta" : enCuenta ? "Anotar en la cuenta" : rc ? (rc.falta > 0 ? "Cobrar diferencia" : rc.aFavor > 0 ? "Confirmar y dar gift card" : "Confirmar cambio") : conGc ? (cgc && cgc.falta > 0 ? "Cobrar con gift card + resto" : "Pagar con gift card") : dividir ? "Cobrar en dos medios" : "Cobrar"}
               </span>
               <span className="text-2xl font-semibold tabular-nums">{!hayCarrito ? "" : rc ? pesos(rc.falta > 0 ? rc.falta : rc.aFavor) : modoGc || !conGc ? pesos(aCobrar) : cgc ? pesos(cgc.falta > 0 ? cgc.falta : cgc.usa) : ""}</span>
             </button>
           </div>
         </section>
       </main>
+    </div>
+  );
+}
+
+/** Buscador de clientas de cuenta corriente (lo usan la venta a cuenta y el cobro de una cuenta). */
+function ElegirClienta({ clientes, busca, setBusca, onElegir }: {
+  clientes: ClienteCaja[] | null; busca: string; setBusca: (x: string) => void; onElegir: (c: ClienteCaja) => void;
+}) {
+  if (!clientes) return <p className="text-sm text-suave">Buscando las cuentas corrientes…</p>;
+  const sinTildes = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const q = sinTildes(busca.trim());
+  const lista = clientes.filter((c) => !q || sinTildes(`${c.nombre} ${c.telefono ?? ""}`).includes(q)).slice(0, 8);
+  return (
+    <div className="space-y-1.5">
+      <input value={busca} onChange={(e) => setBusca(e.target.value)} className="campo" placeholder="¿A qué clienta? Escribí el nombre" autoFocus autoComplete="off" />
+      {lista.length ? (
+        <ul className="divide-y divide-linea rounded-lg border border-linea bg-white text-sm">
+          {lista.map((c) => (
+            <li key={c.id}><button type="button" className="flex w-full justify-between gap-2 px-3 py-2 text-left hover:bg-marca-claro" onClick={() => onElegir(c)}>
+              <b>{c.nombre}</b>
+              <span className={`tabular-nums ${c.debe > c.limite ? "font-semibold text-red-700" : "text-suave"}`}>{c.debe > 0 ? `debe ${pesos(c.debe)}` : "al día"}</span>
+            </button></li>
+          ))}
+        </ul>
+      ) : <p className="text-xs text-suave">{clientes.length ? "No hay ninguna con ese nombre." : "Todavía no hay cuentas."}</p>}
+      <a href="/cuentas" target="_blank" className="text-xs text-marca underline">+ Crear una cuenta nueva</a>
     </div>
   );
 }

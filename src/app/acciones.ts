@@ -17,6 +17,7 @@ import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, trae
 import { numeroWhatsapp } from "@/lib/resumen-cierre";
 import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
+import { anularPagoCC, registrarPagoCC, saldosCC } from "@/lib/supabase/cuentas";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -750,4 +751,58 @@ export async function guardarCargos(cargos: Record<string, string>): Promise<Men
   revalidatePath("/reportes");
   revalidatePath("/configuracion/cargos");
   return { ok: true, texto: "Guardado. Reportes ya calcula la ganancia con estos porcentajes." };
+}
+
+// ---------- Cuentas corrientes (solo Martín y Sofi) ----------
+
+export async function guardarClienteCC(id: string | null, _antes: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await soloDuenio();
+  const nombre = String(form.get("nombre") ?? "").trim().slice(0, 80);
+  if (nombre.length < 2) return { ok: false, texto: "Poné el nombre de la clienta." };
+  const limite = Number(String(form.get("limite") ?? "100000").replace(/\./g, "").replace(",", "."));
+  if (!(limite > 0)) return { ok: false, texto: "El límite tiene que ser mayor a 0." };
+  const datos = {
+    nombre, limite,
+    telefono: String(form.get("telefono") ?? "").trim().slice(0, 30) || null,
+    dni: String(form.get("dni") ?? "").trim().slice(0, 15) || null,
+    notas: String(form.get("notas") ?? "").trim().slice(0, 300) || null,
+  };
+  const db = clienteServidor();
+  const r = id ? await db.from("clientes_cc").update(datos).eq("id", id).select("id").single() : await db.from("clientes_cc").insert(datos).select("id").single();
+  if (r.error) return { ok: false, texto: /clientes_cc/.test(r.error.message) ? "Falta correr la migración 0026_cuentas_corrientes.sql en Supabase." : r.error.message };
+  revalidatePath("/cuentas");
+  if (!id) redirect(`/cuentas/${r.data.id}`);
+  revalidatePath(`/cuentas/${id}`);
+  return { ok: true, texto: "Guardado." };
+}
+
+export async function activarClienteCC(id: string, activo: boolean): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  if (!activo) {
+    const debe = (await saldosCC(db, [id])).get(id)?.debe ?? 0;
+    if (Math.abs(debe) > 0.5) return { ok: false, texto: "No se puede dar de baja: la cuenta tiene saldo." };
+  }
+  await db.from("clientes_cc").update({ activo }).eq("id", id);
+  revalidatePath("/cuentas"); revalidatePath(`/cuentas/${id}`);
+  return { ok: true, texto: activo ? "Cuenta activada." : "Cuenta dada de baja." };
+}
+
+export async function pagoClienteCC(clienteId: string, _antes: Mensaje | null, form: FormData): Promise<Mensaje> {
+  const u = await soloDuenio();
+  try {
+    const r = await registrarPagoCC(clienteServidor(), {
+      cliente_id: clienteId, monto: Number(String(form.get("monto") ?? "").replace(/\./g, "").replace(",", ".")),
+      medio: String(form.get("medio") ?? ""), turno_id: String(form.get("turno_id") ?? "") || null, nota: String(form.get("nota") ?? "") || null, usuario_id: u.id,
+    });
+    revalidatePath("/cuentas"); revalidatePath(`/cuentas/${clienteId}`);
+    return { ok: true, texto: `Pago registrado${r.entroACaja ? " (sumado a la caja)" : ""}. Ahora debe ${r.saldo.toLocaleString("es-AR", { style: "currency", currency: "ARS" })}.` };
+  } catch (e) { return { ok: false, texto: (e as Error).message }; }
+}
+
+export async function anularPagoClienteCC(clienteId: string, pagoId: string): Promise<Mensaje> {
+  await soloDuenio();
+  try { await anularPagoCC(clienteServidor(), pagoId); } catch (e) { return { ok: false, texto: (e as Error).message }; }
+  revalidatePath("/cuentas"); revalidatePath(`/cuentas/${clienteId}`);
+  return { ok: true, texto: "Pago anulado." };
 }

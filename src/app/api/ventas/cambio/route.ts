@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   if (!rango) return NextResponse.json({ error: "El código del ticket tiene 8 letras y números (está abajo del código de barras)." }, { status: 400 });
   const db = clienteServidor();
   const { data: ventas, error } = await db.from("ventas")
-    .select("id, local_id, creada_en, medio_pago, total, anulada, terminal, giftcard_id, giftcard_monto, cambio_de, venta_items(n, producto_id, barcode, sku, nombre, cantidad, precio_unitario, total)")
+    .select("*, venta_items(n, producto_id, barcode, sku, nombre, cantidad, precio_unitario, total)")
     .gte("id", rango[0]).lte("id", rango[1]).limit(1);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const v = ventas?.[0];
@@ -48,8 +48,12 @@ export async function GET(req: Request) {
       return { ...i, cantidad: Number(i.cantidad), precio_unitario: Math.round(Number(i.precio_unitario) * factor), devuelto: ya, puede: Math.max(Number(i.cantidad) - ya, 0) };
     });
   const vence = venceCambio(v.creada_en);
+  // Venta a cuenta corriente: el cambio va contra la cuenta de la clienta (sin la migración 0026 no existe la columna)
+  const ccId = (v as { cliente_cc_id?: string | null }).cliente_cc_id ?? null;
+  const { data: cl } = ccId ? await db.from("clientes_cc").select("id, nombre").eq("id", ccId).maybeSingle() : { data: null };
   return NextResponse.json({
     id: v.id, local_id: v.local_id, creada_en: v.creada_en, medio_pago: v.medio_pago, medio_precio: medio,
     vence: vence.toISOString(), enPlazo: Date.now() <= vence.getTime(), dias: DIAS_CAMBIO, items,
+    cliente_cc: ccId ? { id: ccId, nombre: cl?.nombre ?? "Cuenta corriente" } : null,
   });
 }
