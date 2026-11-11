@@ -12,9 +12,9 @@ describe("tienda online", () => {
   });
   it("sugiere categorías por nombre", () => {
     expect(sugerirCategoria("CARTERAS")).toBe("Carteras, billeteras y mochilas");
-    expect(sugerirCategoria("Tazas y jarros")).toBe("Cocina");
-    expect(sugerirCategoria("Sábanas")).toBe("Cama");
-    expect(sugerirCategoria("Velas aromáticas")).toBe("Decoración");
+    expect(sugerirCategoria("Tazas y jarros")).toBe("Mugs y tazas");
+    expect(sugerirCategoria("Sábanas")).toBe("Sábanas");
+    expect(sugerirCategoria("Velas aromáticas")).toBe("Velas");
     expect(sugerirCategoria("Varios")).toBeNull();
   });
 });

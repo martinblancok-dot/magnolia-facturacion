@@ -5,7 +5,19 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { type CredencialesTN, tn } from "./tiendanube";
 
-export const CATEGORIAS_TIENDA = ["Cocina", "Mesa", "Cama", "Baño", "Living", "Decoración", "Accesorios y moda", "Carteras, billeteras y mochilas"];
+/** Categorías de la tienda: principal → subcategorías (así están creadas en Tiendanube). */
+export const ARBOL_TIENDA: Record<string, string[]> = {
+  "Cocina": ["Utensilios", "Cocción", "Pavas y cafeteras", "Tablas", "Fuentes y tuppers", "Frascos y condimenteros", "Termos y mates"],
+  "Mesa": ["Platos", "Bowls y ensaladeras", "Copas y vasos", "Mugs y tazas", "Fruteras", "Manteles"],
+  "Cama": ["Sábanas", "Acolchados y edredones"],
+  "Baño": ["Sets y dispensers", "Cortinas de baño"],
+  "Living": ["Almohadones", "Cortinas"],
+  "Decoración": ["Velas", "Home spray y difusores", "Floreros", "Espejos", "Lámparas", "Cuadros"],
+  "Accesorios y moda": [],
+  "Carteras, billeteras y mochilas": [],
+};
+/** Todas, para elegir en las equivalencias (las subcategorías ya incluyen su principal al publicar). */
+export const CATEGORIAS_TIENDA = Object.entries(ARBOL_TIENDA).flatMap(([p, hijas]) => [p, ...hijas]);
 
 /** Unidades a mostrar online según el stock de cada local. */
 export function stockOnline(cantidades: number[]): number {
@@ -17,14 +29,39 @@ export function stockOnline(cantidades: number[]): number {
 export function sugerirCategoria(cat: string): string | null {
   const c = cat.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const reglas: [RegExp, string][] = [
-    [/carter|billeter|mochil|bolso|riñon|rinon|neceser|monedero|marroquin/, "Carteras, billeteras y mochilas"],
+    [/carter|billeter|mochil|bolso|rinon|neceser|monedero|marroquin/, "Carteras, billeteras y mochilas"],
     [/bijou|\baros?\b|collar|pulser|anillo|accesori|pelo|hebill|vincha|panuelo|bufand|lente|reloj|moda|beauty|maquill|cosmet/, "Accesorios y moda"],
-    [/cocina|olla|sarten|utensil|cuchill|tabla|repost|especier|frasco|termo|mate|taza|jarro|vaso|copa|bazar/, "Cocina"],
-    [/mesa|plato|bowl|fuente|individual|mantel|servillet|cubierto|bandeja/, "Mesa"],
-    [/cama|sabana|acolchad|almohad|edred|frazada|manta|pie de cama|dormit/, "Cama"],
-    [/bano|toall|alfombra de bano|cortina de bano|jabon|dispenser|higien/, "Baño"],
-    [/living|almohadon|funda|alfombra|cortina|mueble|puff|silla|banco|manta/, "Living"],
-    [/deco|vela|aroma|difusor|florero|maceta|planta|cuadro|espejo|portarretrat|adorno|canasto|cesto|lampar|velador/, "Decoración"],
+    [/pava|cafeter/, "Pavas y cafeteras"],
+    [/termo|\bmates?\b|bombill/, "Termos y mates"],
+    [/frasco|condiment|especier/, "Frascos y condimenteros"],
+    [/tabla/, "Tablas"],
+    [/fuente|tupper|hermetic/, "Fuentes y tuppers"],
+    [/olla|sarten|cacerol|coccion|bifera|budinera|tartera|asadera/, "Cocción"],
+    [/utensil|cuchar|espatul|cucharon|pinza|rallador|colador|cuchill|secaplato/, "Utensilios"],
+    [/mug|taza|jarro/, "Mugs y tazas"],
+    [/copa|vaso/, "Copas y vasos"],
+    [/bowl|ensalader|compotera/, "Bowls y ensaladeras"],
+    [/frutera/, "Fruteras"],
+    [/mantel|individual|camino de mesa|servillet/, "Manteles"],
+    [/plato|vajilla/, "Platos"],
+    [/sabana|juego de cama/, "Sábanas"],
+    [/acolchad|edred|cubrecama|frazada/, "Acolchados y edredones"],
+    [/cortina.*bano|bano.*cortina/, "Cortinas de baño"],
+    [/dispenser|set de bano|jabon|portacepillo/, "Sets y dispensers"],
+    [/almohad|funda/, "Almohadones"],
+    [/cortina/, "Cortinas"],
+    [/vela/, "Velas"],
+    [/home spray|difusor|aroma|sahum/, "Home spray y difusores"],
+    [/florero|jarron/, "Floreros"],
+    [/espejo/, "Espejos"],
+    [/lampar|velador|ilumin/, "Lámparas"],
+    [/cuadro|lamina|portarretrat/, "Cuadros"],
+    [/cocina|bazar|repost/, "Cocina"],
+    [/mesa/, "Mesa"],
+    [/cama|dormit|blanquer/, "Cama"],
+    [/bano|toall/, "Baño"],
+    [/living|alfombra|manta|puff|mueble/, "Living"],
+    [/deco|maceta|planta|adorno|canasto|cesto/, "Decoración"],
   ];
   for (const [re, t] of reglas) if (re.test(c)) return t;
   return null;
@@ -37,6 +74,7 @@ type FilaProducto = {
 };
 
 type TNCategoria = { id: number; name: Record<string, string> | string; parent: number | null };
+type IdsCat = Map<string, number[]>; // nombre → [id, ids de sus padres]
 const nombreCat = (c: TNCategoria) => (typeof c.name === "string" ? c.name : c.name.es ?? Object.values(c.name)[0] ?? "");
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -55,7 +93,7 @@ async function llamar<T>(c: CredencialesTN, ruta: string, init: { method?: strin
 }
 
 /** Ids de las categorías de la tienda por nombre; crea las que falten. */
-async function idsCategorias(c: CredencialesTN, nombres: string[]): Promise<Map<string, number>> {
+async function idsCategorias(c: CredencialesTN, nombres: string[]): Promise<IdsCat> {
   const lista: TNCategoria[] = [];
   for (let page = 1; page < 20; page++) {
     const p = await llamar<TNCategoria[]>(c, `/categories?per_page=200&page=${page}`).catch(() => [] as TNCategoria[]);
@@ -63,7 +101,8 @@ async function idsCategorias(c: CredencialesTN, nombres: string[]): Promise<Map<
     if (p.length < 200) break;
   }
   const mapa = new Map(lista.map((x) => [nombreCat(x).trim().toLowerCase(), x.id]));
-  const out = new Map<string, number>();
+  const padre = new Map(lista.map((x) => [x.id, x.parent || 0]));
+  const out: IdsCat = new Map();
   for (const n of nombres) {
     let id = mapa.get(n.toLowerCase());
     if (!id) {
@@ -71,7 +110,9 @@ async function idsCategorias(c: CredencialesTN, nombres: string[]): Promise<Map<
       id = nueva.id;
       mapa.set(n.toLowerCase(), id);
     }
-    out.set(n, id);
+    const cadena = [id];
+    for (let p = padre.get(id) ?? 0, i = 0; p && i < 5; p = padre.get(p) ?? 0, i++) cadena.push(p);
+    out.set(n, cadena);
   }
   return out;
 }
@@ -107,14 +148,14 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
   }).filter((t) => t.crear || t.visibilidad || t.variante);
 
   // Categorías (solo para los que hay que crear)
-  let cats = new Map<string, number>();
+  let cats: IdsCat = new Map();
   const aCrear = tareas.filter((t) => t.crear);
   if (aCrear.length) {
     const { data: eq } = await db.from("tn_categorias").select("categoria, tn_categoria");
     const equivalencia = new Map((eq ?? []).map((e) => [String(e.categoria), e.tn_categoria as string | null]));
     const nombres = [...new Set(aCrear.map((t) => (t.p.categoria ? equivalencia.get(t.p.categoria) ?? sugerirCategoria(t.p.categoria) : null)).filter((x): x is string => !!x))];
     cats = await idsCategorias(c, nombres);
-    for (const t of aCrear) (t as typeof t & { catId?: number }).catId = (() => {
+    for (const t of aCrear) (t as typeof t & { catIds?: number[] }).catIds = (() => {
       const n = t.p.categoria ? equivalencia.get(t.p.categoria) ?? sugerirCategoria(t.p.categoria) : null;
       return n ? cats.get(n) : undefined;
     })();
@@ -126,13 +167,13 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
     const cambios: Record<string, unknown> = { tn_sincronizado_en: new Date().toISOString(), tn_error: null };
     try {
       if (t.crear) {
-        const catId = (t as typeof t & { catId?: number }).catId;
+        const catIds = (t as typeof t & { catIds?: number[] }).catIds;
         const nuevo = await llamar<{ id: number; variants: { id: number }[] }>(c, "/products", {
           method: "POST",
           body: {
             name: { es: p.nombre },
             published: true,
-            ...(catId ? { categories: [catId] } : {}),
+            ...(catIds?.length ? { categories: catIds } : {}),
             variants: [{ price: t.precio.toFixed(2), stock: t.stock, sku: p.sku || p.barcode, barcode: p.barcode }],
           },
         });
