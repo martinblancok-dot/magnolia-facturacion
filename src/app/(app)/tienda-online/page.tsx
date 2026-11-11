@@ -55,7 +55,7 @@ export default async function TiendaOnline({ searchParams }: { searchParams: Pro
       .order("creado_en", { ascending: false }).limit(activos ? 100 : 200);
     if (activos) qp = qp.in("estado", ["pendiente_pago", "a_preparar", "preparado"]);
     const { data: pedidos, error: errP } = await qp;
-    const faltaTabla = !!errP && /pedidos_web/.test(errP.message);
+    const faltaTabla = !!errP && /does not exist|Could not find the table/.test(errP.message) && /pedidos_web/.test(errP.message);
     const LOCAL: Record<number, string> = { 1: "Home", 2: "Beauty" };
     const color: Record<EstadoPedido, string> = {
       pendiente_pago: "bg-amber-50 text-amber-900", a_preparar: "bg-marca-claro text-marca", preparado: "bg-blue-50 text-blue-900",
@@ -73,7 +73,7 @@ export default async function TiendaOnline({ searchParams }: { searchParams: Pro
           <Link href="/tienda-online?ver=pedidos&estado=todos" className={!activos ? "font-semibold text-marca" : "text-suave underline"}>Todos</Link>
         </nav>
         {faltaTabla && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">Falta correr la migración <b>0028_pedidos_online.sql</b> en Supabase.</p>}
-        {errP && !faltaTabla && <p className="text-sm text-red-700">{errP.message}</p>}
+        {errP && <p className="text-xs text-suave">Detalle: {errP.message}</p>}
         {!errP && !(pedidos ?? []).length && <p className="rounded-2xl border border-linea bg-white px-6 py-10 text-center text-suave">{activos ? "No hay pedidos en curso." : "Todavía no entró ningún pedido."}</p>}
         <div className="space-y-3">
           {(pedidos ?? []).map((p) => {

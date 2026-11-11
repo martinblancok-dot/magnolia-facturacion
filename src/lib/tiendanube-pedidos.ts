@@ -110,7 +110,7 @@ type Prod = { id: string; tn_producto_id: number | null; tn_variante_id: number 
 export async function guardarPedido(db: SupabaseClient, p: PedidoTN): Promise<"nuevo" | "actualizado" | "sin cambios" | "cancelado"> {
   const { pagado, cancelado, despachado, fila } = leerPedido(p);
   const { data: previo, error: errPrevio } = await db.from("pedidos_web").select("estado, stock_descontado, actualizado_tn").eq("id", p.id).maybeSingle();
-  if (errPrevio) throw new Error(/pedidos_web/.test(errPrevio.message) ? "Falta correr la migración 0028_pedidos_online.sql en Supabase." : errPrevio.message);
+  if (errPrevio) throw new Error(/does not exist|Could not find the table/.test(errPrevio.message) ? `Falta correr la migración 0028_pedidos_online.sql en Supabase (${errPrevio.message}).` : errPrevio.message);
   const ahora = new Date().toISOString();
 
   if (!previo) {
