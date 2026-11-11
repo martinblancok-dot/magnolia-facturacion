@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
+import { pedidosParaCaja } from "@/lib/tiendanube-pedidos";
 
 export async function POST(req: Request) {
   const u = await usuarioDeLaSesion();
@@ -21,5 +22,8 @@ export async function POST(req: Request) {
     const { data } = await db.from("turnos_caja").select("cerrada_en").eq("id", turno).maybeSingle();
     if (data) estado = data.cerrada_en ? "cerrado" : "abierto";
   }
-  return NextResponse.json({ turno: estado });
+  // Pedidos de la tienda online que tiene que preparar o entregar este local
+  const local = Number(b?.local_id);
+  const pedidosWeb = [1, 2].includes(local) ? await pedidosParaCaja(db, local) : [];
+  return NextResponse.json({ turno: estado, pedidosWeb });
 }

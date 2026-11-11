@@ -18,8 +18,9 @@ import { numeroWhatsapp } from "@/lib/resumen-cierre";
 import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { anularPagoCC, registrarPagoCC, saldosCC } from "@/lib/supabase/cuentas";
-import { borrarCredencialesTN, leerCredencialesTN } from "@/lib/tiendanube";
+import { URL_SISTEMA, borrarCredencialesTN, leerCredencialesTN } from "@/lib/tiendanube";
 import { sincronizarTienda } from "@/lib/tiendanube-sync";
+import { marcarEntregado, registrarAvisosTN, revisarPedidosTN } from "@/lib/tiendanube-pedidos";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -860,4 +861,30 @@ export async function guardarCategoriasTienda(_prev: Mensaje | null, form: FormD
   if (error) return { ok: false, texto: /tn_categorias/.test(error.message) ? "Falta correr la migración 0027_tiendanube.sql en Supabase." : error.message };
   revalidatePath("/tienda-online");
   return { ok: true, texto: "Equivalencias guardadas. Se usan al crear cada producto en la tienda." };
+}
+
+/** Trae ya los pedidos de la tienda online (además de los avisos automáticos) y asegura que Tiendanube avise. */
+export async function revisarPedidosAhora(): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  const cred = await leerCredencialesTN(db);
+  if (!cred) return { ok: false, texto: "La tienda no está conectada (Configuración → Tienda online)." };
+  try {
+    const base = URL_SISTEMA;
+    await registrarAvisosTN(cred, base);
+    await db.from("ajustes").upsert({ clave: "tn_avisos", valor: base, actualizado_en: new Date().toISOString() });
+    const r = await revisarPedidosTN(db, cred, 40_000);
+    revalidatePath("/tienda-online");
+    const partes = [r.nuevos && `${r.nuevos} nuevos`, r.actualizados && `${r.actualizados} actualizados`, r.cancelados && `${r.cancelados} cancelados`].filter(Boolean);
+    return { ok: !r.errores.length, texto: `${partes.length ? partes.join(", ") : "No había pedidos nuevos"}.${r.errores.length ? ` Con error: ${r.errores.slice(0, 3).join(" · ")}` : ""}` };
+  } catch (e) { return { ok: false, texto: (e as Error).message }; }
+}
+
+export async function marcarPedidoEntregado(id: number): Promise<Mensaje> {
+  const u = await soloDuenio();
+  try {
+    const ok = await marcarEntregado(clienteServidor(), id, u.id);
+    revalidatePath("/tienda-online");
+    return ok ? { ok: true, texto: "Pedido marcado como entregado." } : { ok: false, texto: "Ese pedido ya estaba entregado o cancelado." };
+  } catch (e) { return { ok: false, texto: (e as Error).message }; }
 }

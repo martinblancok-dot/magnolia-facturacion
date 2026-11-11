@@ -22,7 +22,9 @@ export async function GET(req: Request) {
   if (!codigo) return volver("sin-codigo");
   try {
     const c = await canjearCodigoTN(codigo);
-    await guardarCredencialesTN(clienteServidor(), { ...c, conectada: new Date().toISOString() });
+    const db = clienteServidor();
+    await guardarCredencialesTN(db, { ...c, conectada: new Date().toISOString() });
+    await db.from("ajustes").delete().eq("clave", "tn_avisos"); // la tarea automática vuelve a pedir los avisos de pedidos
     return volver("ok");
   } catch (e) {
     console.error("Tiendanube:", (e as Error).message);

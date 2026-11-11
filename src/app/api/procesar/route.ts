@@ -7,8 +7,9 @@ import { pedirTicket } from "@/lib/arca/wsaa";
 import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
 import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
-import { leerCredencialesTN } from "@/lib/tiendanube";
+import { URL_SISTEMA, leerCredencialesTN } from "@/lib/tiendanube";
 import { sincronizarTienda } from "@/lib/tiendanube-sync";
+import { registrarAvisosTN, revisarPedidosTN } from "@/lib/tiendanube-pedidos";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisores } from "@/lib/supabase/almacen";
 
@@ -47,9 +48,20 @@ export async function POST(req: Request) {
     }
     informe[e.nombre] = r;
   }
-  // 4) Tienda online: precios y stock al día (con el tiempo que quede)
+  // 4) Tienda online: primero los pedidos (descuentan stock), después precios y stock al día (con el tiempo que quede)
   try {
     const cred = await leerCredencialesTN(db);
+    if (cred) {
+      try {
+        const base = URL_SISTEMA;
+        const { data: avisos } = await db.from("ajustes").select("valor").eq("clave", "tn_avisos").maybeSingle();
+        if (avisos?.valor !== base) {
+          informe.avisosPedidos = await registrarAvisosTN(cred, base);
+          await db.from("ajustes").upsert({ clave: "tn_avisos", valor: base, actualizado_en: new Date().toISOString() });
+        }
+      } catch (err) { informe.errorAvisosPedidos = (err as Error).message; }
+      try { informe.pedidosOnline = await revisarPedidosTN(db, cred, 25_000); } catch (err) { informe.errorPedidosOnline = (err as Error).message; }
+    }
     const resta = 105_000 - (Date.now() - ahora.getTime());
     if (cred && resta > 10_000) informe.tiendaOnline = await sincronizarTienda(db, cred, { hastaMs: resta });
   } catch (err) { informe.errorTiendaOnline = (err as Error).message; }

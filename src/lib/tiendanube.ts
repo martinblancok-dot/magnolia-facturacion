@@ -7,6 +7,8 @@ import { cifrar, descifrar } from "./secretos";
 
 export const TN_API = "https://api.tiendanube.com/v1";
 export const TN_AUTH = "https://www.tiendanube.com/apps";
+/** Dirección pública del sistema a la que Tiendanube manda los avisos de pedidos (la misma registrada en Partners). */
+export const URL_SISTEMA = (process.env.URL_SISTEMA?.trim() || "https://magnolia-facturacion.vercel.app").replace(/\/$/, "");
 
 export interface CredencialesTN { token: string; tienda: number; scope: string; conectada: string }
 

@@ -3,6 +3,8 @@
 // y las ventas se suben solas cuando vuelve la conexión.
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PedidosWeb } from "./pedidos-web";
+import type { PedidoCaja } from "@/lib/tiendanube-pedidos";
 import {
   agregar, armarVenta, armarVentaCambio, armarVentaCambioCuenta, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
   precioUnitario, redondear, totales, type GiftCard, type ItemCarrito, type MedioPago, type ProductoCaja, type VentaParaSubir,
@@ -67,6 +69,8 @@ export function Caja() {
   const [pendientes, setPendientes] = useState(0);
   const [estado, setEstado] = useState<Estado>("conectado");
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [pedidosWeb, setPedidosWeb] = useState<PedidoCaja[]>([]);
+  const latirRef = useRef<() => void>(() => {});
   const [varios, setVarios] = useState(false);
   const [turno, setTurno] = useState<TurnoLocal | null>(null);
   const [miNombre, setMiNombre] = useState<string | null>(null);
@@ -268,6 +272,7 @@ export function Caja() {
         });
         if (!r.ok) return;
         const d = await r.json();
+        if (Array.isArray(d.pedidosWeb)) setPedidosWeb(d.pedidosWeb);
         if (d.turno === "cerrado") {
           guardarTurno(null);
           setTurno(null);
@@ -283,6 +288,7 @@ export function Caja() {
         }
       } catch {}
     };
+    latirRef.current = latir;
     latir();
     const cada = setInterval(latir, 30_000);
     return () => clearInterval(cada);
@@ -804,6 +810,8 @@ export function Caja() {
           {estado === "sin-conexion" ? "Sin internet · " : estado === "sin-sesion" ? "Iniciá sesión · " : ""}{pendientes > 0 ? `${pendientes} sin subir` : ""}
         </p>
       )}
+
+      <PedidosWeb pedidos={pedidosWeb} local={turno.local_id} onCambio={() => latirRef.current()} />
 
       {movForm && (
         <form className="flex flex-wrap items-end gap-3 border-b border-linea bg-marca-claro px-4 py-3" onSubmit={(e) => {
