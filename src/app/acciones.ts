@@ -18,7 +18,8 @@ import { numeroWhatsapp } from "@/lib/resumen-cierre";
 import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { anularPagoCC, registrarPagoCC, saldosCC } from "@/lib/supabase/cuentas";
-import { borrarCredencialesTN } from "@/lib/tiendanube";
+import { borrarCredencialesTN, leerCredencialesTN } from "@/lib/tiendanube";
+import { sincronizarTienda } from "@/lib/tiendanube-sync";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
 export interface Mensaje {
@@ -815,4 +816,48 @@ export async function desconectarTiendanube(): Promise<Mensaje> {
   await borrarCredencialesTN(clienteServidor());
   revalidatePath("/configuracion/tienda");
   return { ok: true, texto: "Tienda desconectada." };
+}
+
+/** Marca o desmarca productos para la tienda online. Se mandan en la próxima sincronización. */
+export async function publicarEnTienda(ids: string[], publicar: boolean): Promise<Mensaje> {
+  await soloDuenio();
+  const validos = ids.filter((i) => /^[0-9a-f-]{36}$/i.test(i)).slice(0, 2000);
+  if (!validos.length) return { ok: false, texto: "Elegí al menos un producto." };
+  const db = clienteServidor();
+  for (let i = 0; i < validos.length; i += 200) {
+    const { error } = await db.from("productos").update({ publicar_web: publicar }).in("id", validos.slice(i, i + 200));
+    if (error) return { ok: false, texto: /publicar_web|tn_/.test(error.message) ? "Falta correr la migración 0027_tiendanube.sql en Supabase." : error.message };
+  }
+  revalidatePath("/tienda-online");
+  return { ok: true, texto: `${validos.length} producto${validos.length === 1 ? "" : "s"} ${publicar ? "marcado(s) para publicar" : "marcado(s) para ocultar"}. Tocá "Sincronizar ahora" o esperá unos minutos.` };
+}
+
+export async function sincronizarTiendaAhora(): Promise<Mensaje> {
+  await soloDuenio();
+  const db = clienteServidor();
+  const cred = await leerCredencialesTN(db);
+  if (!cred) return { ok: false, texto: "La tienda no está conectada (Configuración → Tienda online)." };
+  try {
+    const r = await sincronizarTienda(db, cred, { hastaMs: 50_000 });
+    revalidatePath("/tienda-online");
+    const partes = [r.creados && `${r.creados} creados`, r.actualizados && `${r.actualizados} actualizados`, r.ocultos && `${r.ocultos} ocultos`].filter(Boolean);
+    return {
+      ok: r.errores === 0,
+      texto: `${partes.length ? partes.join(", ") : "No había cambios"}.${r.pendientes ? ` Quedan ${r.pendientes} para la próxima vuelta (se siguen solos).` : ""}${r.errores ? ` ${r.errores} con error: ${r.detalleErrores.join(" · ")}` : ""}`,
+    };
+  } catch (e) { return { ok: false, texto: (e as Error).message }; }
+}
+
+export async function guardarCategoriasTienda(_prev: Mensaje | null, form: FormData): Promise<Mensaje> {
+  await soloDuenio();
+  const filas: { categoria: string; tn_categoria: string | null; actualizado_en: string }[] = [];
+  for (const [k, v] of form.entries()) {
+    if (!k.startsWith("cat:")) continue;
+    filas.push({ categoria: k.slice(4), tn_categoria: String(v).trim() || null, actualizado_en: new Date().toISOString() });
+  }
+  if (!filas.length) return { ok: false, texto: "No hay categorías para guardar." };
+  const { error } = await clienteServidor().from("tn_categorias").upsert(filas);
+  if (error) return { ok: false, texto: /tn_categorias/.test(error.message) ? "Falta correr la migración 0027_tiendanube.sql en Supabase." : error.message };
+  revalidatePath("/tienda-online");
+  return { ok: true, texto: "Equivalencias guardadas. Se usan al crear cada producto en la tienda." };
 }

@@ -7,6 +7,8 @@ import { pedirTicket } from "@/lib/arca/wsaa";
 import { solicitarCAE, ultimoNumero } from "@/lib/arca/wsfe";
 import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
+import { leerCredencialesTN } from "@/lib/tiendanube";
+import { sincronizarTienda } from "@/lib/tiendanube-sync";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisores } from "@/lib/supabase/almacen";
 
@@ -45,5 +47,11 @@ export async function POST(req: Request) {
     }
     informe[e.nombre] = r;
   }
+  // 4) Tienda online: precios y stock al día (con el tiempo que quede)
+  try {
+    const cred = await leerCredencialesTN(db);
+    const resta = 105_000 - (Date.now() - ahora.getTime());
+    if (cred && resta > 10_000) informe.tiendaOnline = await sincronizarTienda(db, cred, { hastaMs: resta });
+  } catch (err) { informe.errorTiendaOnline = (err as Error).message; }
   return NextResponse.json(informe);
 }

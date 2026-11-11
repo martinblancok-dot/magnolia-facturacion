@@ -46,6 +46,7 @@ export default async function TiendaOnline({ searchParams }: { searchParams: Pro
             <p className="text-sm">✅ Conectada a la tienda <b>{tienda?.nombre || `#${c.tienda}`}</b>{tienda?.url ? <> · <a className="text-marca underline" href={tienda.url} target="_blank">{tienda.url}</a></> : null}</p>
             <p className="text-xs text-suave">Permisos: {c.scope || "—"} · conectada el {new Date(c.conectada).toLocaleDateString("es-AR")}</p>
             {errorTN && <p className="text-sm text-red-700">⚠ {errorTN}</p>}
+            <a href="/tienda-online" className="boton inline-block">Elegir qué productos publicar →</a>
             <div className="flex flex-wrap gap-3">
               <a href="/api/tiendanube/conectar" className="boton-borde">Volver a conectar</a>
               <BotonAccion accion={desconectarTiendanube} texto="Desconectar" borde />
