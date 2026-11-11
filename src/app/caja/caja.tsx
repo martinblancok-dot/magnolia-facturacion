@@ -451,7 +451,7 @@ export function Caja() {
     if (!local || !(montoNuevaGc > 0)) return;
     if (medio === "efectivo" && pago > 0 && pago < montoNuevaGc) { setAviso({ ok: false, texto: "El pago es menor al valor de la gift card." }); return; }
     const idTarjeta = crypto.randomUUID();
-    const v = { ...armarVentaNuevaGiftcard(montoNuevaGc, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), idTarjeta, new Date(), c.paraGc), turno_id: turno?.id ?? null };
+    const v = { ...armarVentaNuevaGiftcard(montoNuevaGc, medio, local, idTerminal(), pago > 0 ? pago : null, c.id, idTarjeta, new Date(), c.paraGc), turno_id: turno?.id ?? null };
     try { await guardarVenta(v); } catch { setAviso({ ok: false, texto: "No se pudo guardar la venta en esta compu. Probá de nuevo." }); return; }
     terminarVenta(v, { giftcard_nueva: { codigo: codigoGiftcard(idTarjeta), monto: v.total, destinatario: v.giftcard_nueva?.destinatario ?? null } });
   };
@@ -460,7 +460,7 @@ export function Caja() {
   const cobrarConGiftcard = async () => {
     if (!local || !gc || !cgc || items.length === 0) return;
     if (medioEfectivo && pago > 0 && pago < cgc.falta) { setAviso({ ok: false, texto: "El pago es menor a lo que falta." }); return; }
-    const v = { ...armarVentaGiftcard(items, gc, medioResto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
+    const v = { ...armarVentaGiftcard(items, gc, medioResto, local, idTerminal(), pago > 0 ? pago : null, c.id, new Date(), ext), turno_id: turno?.id ?? null };
     setCobrando(true);
     try {
       const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
@@ -560,7 +560,7 @@ export function Caja() {
     if (!local || !cambio || !rc) return;
     if (medioEfectivo && pago > 0 && pago < rc.falta) { setAviso({ ok: false, texto: "El pago es menor a la diferencia." }); return; }
     const idGc = crypto.randomUUID();
-    const v = { ...armarVentaCambio(items, cambio, medioResto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), idGc, new Date(), ext), turno_id: turno?.id ?? null };
+    const v = { ...armarVentaCambio(items, cambio, medioResto, local, idTerminal(), pago > 0 ? pago : null, c.id, idGc, new Date(), ext), turno_id: turno?.id ?? null };
     setCobrando(true);
     try {
       const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
@@ -610,14 +610,14 @@ export function Caja() {
   };
   const cobrarCuenta = async () => {
     if (!local || !ccCliente || items.length === 0 || ccBloquea) return;
-    const v = { ...armarVenta(items, "cuenta", local, idTerminal(), null, crypto.randomUUID(), new Date(), ext), cliente_cc_id: ccCliente.id, turno_id: turno?.id ?? null };
+    const v = { ...armarVenta(items, "cuenta", local, idTerminal(), null, c.id, new Date(), ext), cliente_cc_id: ccCliente.id, turno_id: turno?.id ?? null };
     const r = await subirVentaCuenta(v);
     if (r.ok) terminarVenta(v, { cuenta: { nombre: ccCliente.nombre, saldo: r.saldo } });
   };
   const cobrarCambioCuenta = async () => {
     if (!local || !cambio || !cambioCC) return;
     if (netoCC < 0 && cambio.enPlazo === false) { setAviso({ ok: false, texto: "Pasaron más de 15 días: lo devuelto ya no se descuenta de la cuenta. Solo puede cambiarlo por algo de igual o mayor valor." }); return; }
-    const v = { ...armarVentaCambioCuenta(items, cambio, cambioCC.id, local, idTerminal(), crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
+    const v = { ...armarVentaCambioCuenta(items, cambio, cambioCC.id, local, idTerminal(), c.id, new Date(), ext), turno_id: turno?.id ?? null };
     const r = await subirVentaCuenta(v);
     if (r.ok) terminarVenta(v, { cambio: { codigo: cambio.codigo, credito: creditoCambio(cambio) }, cuenta: { nombre: cambioCC.nombre, saldo: r.saldo } });
   };
@@ -644,7 +644,14 @@ export function Caja() {
     }
   };
 
+  // Un solo cobro a la vez: un doble clic o un Enter repetido no puede registrar la venta dos veces
+  const cobrandoRef = useRef(false);
   const cobrar = async () => {
+    if (cobrandoRef.current) return;
+    cobrandoRef.current = true;
+    try { await cobrarUnaVez(); } finally { cobrandoRef.current = false; }
+  };
+  const cobrarUnaVez = async () => {
     if (modoGc) return venderGiftcard();
     if (cambio) return cambioCC ? cobrarCambioCuenta() : cobrarCambio();
     if (conGc) return cobrarConGiftcard();
@@ -653,7 +660,7 @@ export function Caja() {
     if (dividir) {
       if (!div) { setAviso({ ok: false, texto: `Poné cuánto paga en ${nombreMedio(medio).toLowerCase()} (menos que el total) y con qué paga el resto.` }); return; }
       if (pago > 0 && pago < enEfectivo) { setAviso({ ok: false, texto: "Lo que entrega en efectivo es menos que la parte en efectivo." }); return; }
-      const vd = armarVentaDividida(items, medio, montoDiv, dividir.resto, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext);
+      const vd = armarVentaDividida(items, medio, montoDiv, dividir.resto, local, idTerminal(), pago > 0 ? pago : null, c.id, new Date(), ext);
       if (!vd) return;
       const v = { ...vd, turno_id: turno?.id ?? null };
       try { await guardarVenta(v); } catch { setAviso({ ok: false, texto: "No se pudo guardar la venta en esta compu. Probá de nuevo." }); return; }
@@ -661,7 +668,7 @@ export function Caja() {
       return;
     }
     if (medio === "efectivo" && pago > 0 && pago < t.total) { setAviso({ ok: false, texto: "El pago es menor al total." }); return; }
-    const v = { ...armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, crypto.randomUUID(), new Date(), ext), turno_id: turno?.id ?? null };
+    const v = { ...armarVenta(items, medio, local, idTerminal(), pago > 0 ? pago : null, c.id, new Date(), ext), turno_id: turno?.id ?? null };
     try {
       await guardarVenta(v);
     } catch {
