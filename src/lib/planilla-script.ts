@@ -19,6 +19,9 @@ function onOpen() {
     .addItem('Sumar "Lista Etiquetas" al stock de Magnolia Home', 'sumarStockHome')
     .addItem('Sumar "Lista Etiquetas" al stock de Magnolia Beauty', 'sumarStockBeauty')
     .addSeparator()
+    .addItem('Copia de seguridad: hacer ahora', 'respaldoAhora')
+    .addItem('Copia de seguridad: activar todas las semanas', 'activarRespaldoSemanal')
+    .addSeparator()
     .addItem('Configurar conexión', 'configurar')
     .addToUi();
 }
@@ -269,5 +272,80 @@ function sumarStock_(local) {
   } catch (e) {
     ui.alert('Magnolia', 'No se pudo sumar el stock: ' + e.message, ui.ButtonSet.OK);
   }
+}
+
+// ---------- Copia de seguridad del sistema (en el Drive) ----------
+// Baja todas las tablas del sistema (productos, stock, ventas, cajas, gift cards, cuentas, pedidos online,
+// facturas) como archivos CSV dentro de un .zip en la carpeta "Respaldos Magnolia" del Drive.
+// Guarda las últimas 12 copias. No incluye claves ni certificados.
+
+var CARPETA_RESPALDOS = 'Respaldos Magnolia';
+var COPIAS_A_GUARDAR = 12;
+
+function csv_(filas) {
+  if (!filas.length) return '';
+  var cols = [];
+  filas.forEach(function (f) { Object.keys(f).forEach(function (k) { if (cols.indexOf(k) < 0) cols.push(k); }); });
+  var celda = function (v) {
+    if (v === null || v === undefined) return '';
+    var t = typeof v === 'object' ? JSON.stringify(v) : String(v);
+    return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  return [cols.join(',')].concat(filas.map(function (f) { return cols.map(function (c) { return celda(f[c]); }).join(','); })).join('\r\n');
+}
+
+function respaldo_() {
+  var info = llamar_('get', '/api/respaldo');
+  var blobs = [], total = 0;
+  info.tablas.forEach(function (tabla) {
+    var filas = [];
+    for (var pagina = 0; pagina < 500; pagina++) {
+      var r = llamar_('get', '/api/respaldo?tabla=' + encodeURIComponent(tabla) + '&pagina=' + pagina);
+      filas = filas.concat(r.filas || []);
+      if (!r.mas) break;
+    }
+    total += filas.length;
+    blobs.push(Utilities.newBlob('\ufeff' + csv_(filas), 'text/csv', tabla + '.csv'));
+  });
+  var fecha = Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'yyyy-MM-dd HH.mm');
+  var nombre = 'Magnolia ' + fecha + '.zip';
+  var carpetas = DriveApp.getFoldersByName(CARPETA_RESPALDOS);
+  var carpeta = carpetas.hasNext() ? carpetas.next() : DriveApp.createFolder(CARPETA_RESPALDOS);
+  carpeta.createFile(Utilities.zip(blobs, nombre));
+  // Borra las copias viejas (deja las últimas 12)
+  var archivos = [], it = carpeta.getFiles();
+  while (it.hasNext()) { var a = it.next(); if (/^Magnolia .*\.zip$/.test(a.getName())) archivos.push(a); }
+  archivos.sort(function (x, y) { return y.getDateCreated() - x.getDateCreated(); });
+  archivos.slice(COPIAS_A_GUARDAR).forEach(function (a) { a.setTrashed(true); });
+  try { llamar_('post', '/api/respaldo', { archivo: nombre, filas: total }); } catch (e) { /* no frena la copia */ }
+  return { nombre: nombre, filas: total, tablas: info.tablas.length };
+}
+
+/** Lo corre el reloj una vez por semana. */
+function respaldoSemanal() {
+  try { respaldo_(); }
+  catch (e) {
+    try { llamar_('post', '/api/respaldo', { error: e.message }); } catch (e2) { /* sin conexión */ }
+    throw e; // Google le manda un mail al dueño del script avisando que falló
+  }
+}
+
+function respaldoAhora() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var r = respaldo_();
+    ui.alert('Magnolia', 'Copia guardada en tu Drive, carpeta "' + CARPETA_RESPALDOS + '":\n' + r.nombre + '\n(' + r.filas + ' filas de ' + r.tablas + ' tablas)', ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Magnolia', 'No se pudo hacer la copia: ' + e.message, ui.ButtonSet.OK);
+  }
+}
+
+function activarRespaldoSemanal() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'respaldoSemanal') ScriptApp.deleteTrigger(t);
+  });
+  // Domingos a la madrugada (los locales están cerrados)
+  ScriptApp.newTrigger('respaldoSemanal').timeBased().onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(4).inTimezone('America/Argentina/Buenos_Aires').create();
+  respaldoAhora();
 }
 `;

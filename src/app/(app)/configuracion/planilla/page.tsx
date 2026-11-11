@@ -12,12 +12,16 @@ const fechaHora = (iso: string) => new Date(iso).toLocaleString("es-AR", { timeZ
 export default async function PlanillaConfig() {
   await soloDuenio();
   const db = clienteServidor();
-  const [estado, { data: token }, { data: pendientes, error: errorTabla }, { data: fallidos }] = await Promise.all([
+  const [estado, { data: token }, { data: pendientes, error: errorTabla }, { data: fallidos }, { data: resp }] = await Promise.all([
     leerEstado(db),
     db.from("ajustes").select("actualizado_en").eq("clave", "token_planilla").maybeSingle(),
     db.from("planilla_cambios").select("id, tipo, barcode, hoja, datos, creado_en").is("aplicado_en", null).is("error", null).order("id"),
     db.from("planilla_cambios").select("id, tipo, barcode, hoja, datos, creado_en, error").not("error", "is", null).is("aplicado_en", null).order("id", { ascending: false }).limit(20),
+    db.from("ajustes").select("valor").eq("clave", "respaldo_ultimo").maybeSingle(),
   ]);
+  let respaldo: { cuando: string; archivo: string; filas: number; error: string | null } | null = null;
+  try { respaldo = resp?.valor ? JSON.parse(resp.valor) : null; } catch {}
+  const diasRespaldo = respaldo ? Math.floor((Date.now() - Date.parse(respaldo.cuando)) / 86400_000) : null;
   const describir = (c: { tipo: string; barcode: string | null; hoja: string; datos: Record<string, unknown> }) =>
     c.tipo === "nuevo"
       ? `Nuevo en "${c.hoja}": ${c.datos.nombre} (art. ${c.datos.articulo_prov}, costo $${c.datos.costo})`
@@ -32,6 +36,14 @@ export default async function PlanillaConfig() {
       </div>
 
       {errorTabla && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">Falta correr la migración <b>0012_planilla.sql</b> en Supabase.</p>}
+
+      <section id="respaldo" className="tarjeta space-y-2">
+        <h2 className="font-semibold">Copia de seguridad</h2>
+        {!respaldo ? <p className="text-sm text-amber-800">Todavía no se hizo ninguna copia.</p>
+          : respaldo.error ? <p className="text-sm text-red-700">✗ La última copia falló ({fechaHora(respaldo.cuando)}): {respaldo.error}</p>
+          : <p className={`text-sm ${diasRespaldo! > 9 ? "text-amber-800" : "text-green-800"}`}>{diasRespaldo! > 9 ? "⚠️ " : "✓ "}Última copia: {fechaHora(respaldo.cuando)} · {respaldo.archivo} · {respaldo.filas.toLocaleString("es-AR")} filas{diasRespaldo! > 9 ? ` (hace ${diasRespaldo} días: revisá que siga activa)` : ""}</p>}
+        <p className="ayuda">La hace el script de Precios Deco todos los domingos a las 4 y la guarda en tu Google Drive, carpeta &quot;Respaldos Magnolia&quot; (quedan las últimas 12). Para activarla: pegá la versión nueva del script (abajo) y en la planilla tocá menú Magnolia → Copia de seguridad: activar todas las semanas. Incluye productos, stock, ventas, cajas, gift cards, cuentas corrientes, pedidos online y facturas; no incluye claves ni certificados.</p>
+      </section>
 
       <section className="tarjeta space-y-2">
         <h2 className="font-semibold">Estado</h2>
