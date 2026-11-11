@@ -23,4 +23,4 @@ export const TABLAS_RESPALDO: Record<string, string[]> = {
   comprobantes_arca: ["id"],
   perfiles: ["usuario_id"],
 };
-export const FILAS_POR_PAGINA = 2000;
+export const FILAS_POR_PAGINA = 1000; // Supabase no devuelve más de 1000 filas por pedido
