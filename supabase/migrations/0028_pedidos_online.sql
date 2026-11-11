@@ -54,9 +54,11 @@ create index if not exists pedidos_web_items_local on public.pedidos_web_items (
 alter table public.pedidos_web enable row level security;
 alter table public.pedidos_web_items enable row level security;
 drop policy if exists "ver pedidos web" on public.pedidos_web;
-create policy "ver pedidos web" on public.pedidos_web for select to authenticated using (true);
+-- Tienen datos de clientes (teléfono, mail, dirección): desde afuera del sistema solo los ven los dueños.
+-- La caja de los colaboradores los recibe por el servidor, solo lo necesario para preparar.
+create policy "ver pedidos web" on public.pedidos_web for select to authenticated using (public.es_duenio());
 drop policy if exists "ver items pedidos web" on public.pedidos_web_items;
-create policy "ver items pedidos web" on public.pedidos_web_items for select to authenticated using (true);
+create policy "ver items pedidos web" on public.pedidos_web_items for select to authenticated using (public.es_duenio());
 
 -- Descuenta (p_signo = -1) o devuelve (p_signo = 1) el stock de un pedido, una sola vez.
 create or replace function public.stock_pedido_web(p_pedido bigint, p_signo int)
