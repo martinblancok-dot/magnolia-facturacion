@@ -1,16 +1,19 @@
 "use client";
 import { useState, useTransition } from "react";
 import { guardarCargos } from "@/app/acciones";
-import { MEDIOS_CAJA } from "@/lib/caja";
+import { MEDIOS, MEDIOS_CAJA } from "@/lib/caja";
+
+// Los de la caja más la tienda online (comisión de Pago Nube / Tiendanube)
+const MEDIOS_CARGOS = [...MEDIOS_CAJA, ...MEDIOS.filter((m) => m.id === "web")];
 import type { Cargos } from "@/lib/reportes";
 
 export function FormCargos({ inicial }: { inicial: Cargos }) {
-  const [v, setV] = useState<Record<string, string>>(Object.fromEntries(MEDIOS_CAJA.map((m) => [m.id, inicial[m.id] ? String(inicial[m.id]).replace(".", ",") : ""])));
+  const [v, setV] = useState<Record<string, string>>(Object.fromEntries(MEDIOS_CARGOS.map((m) => [m.id, inicial[m.id] ? String(inicial[m.id]).replace(".", ",") : ""])));
   const [msj, setMsj] = useState<{ ok: boolean; texto: string } | null>(null);
   const [pendiente, empezar] = useTransition();
   return (
     <section className="tarjeta space-y-3">
-      {MEDIOS_CAJA.map((m) => {
+      {MEDIOS_CARGOS.map((m) => {
         const n = Number((v[m.id] || "0").replace(",", ".")) || 0;
         return (
           <label key={m.id} className="flex items-center gap-3">

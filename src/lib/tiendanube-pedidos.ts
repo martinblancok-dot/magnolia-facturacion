@@ -28,6 +28,7 @@ export interface PedidoTN {
   updated_at?: string;
   paid_at?: string | null;
   total?: string | number;
+  shipping_cost_customer?: string | number | null;
   gateway_name?: string | null;
   payment_details?: { method?: string | null } | null;
   customer?: { name?: string | null; email?: string | null; phone?: string | null } | null;
@@ -96,6 +97,7 @@ function leerPedido(p: PedidoTN) {
       direccion: !retiro && dir ? [[dir.address, dir.number].filter(Boolean).join(" "), dir.floor, dir.locality, dir.city, dir.province, dir.zipcode && `CP ${dir.zipcode}`].filter(Boolean).join(", ") : null,
       nota: p.note || null,
       total: Number(p.total) || 0,
+      costo_envio: Number(p.shipping_cost_customer) || 0,
       creado_en: p.created_at,
       actualizado_tn: p.updated_at ?? p.created_at,
     },

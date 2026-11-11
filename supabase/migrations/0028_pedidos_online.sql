@@ -23,6 +23,7 @@ create table if not exists public.pedidos_web (
   direccion        text,
   nota             text,
   total            numeric(14,2) not null default 0,
+  costo_envio      numeric(14,2) not null default 0,  -- lo que pagó el cliente de envío (no es venta de productos)
   creado_en        timestamptz not null,          -- cuándo lo hizo el cliente
   actualizado_tn   timestamptz,                   -- última modificación en Tiendanube
   stock_descontado boolean not null default false,
@@ -82,3 +83,6 @@ begin
   return n;
 end $$;
 revoke execute on function public.stock_pedido_web(bigint, int) from public, anon, authenticated;
+
+-- Por si la tabla se creó con una versión anterior de este archivo
+alter table public.pedidos_web add column if not exists costo_envio numeric(14,2) not null default 0;

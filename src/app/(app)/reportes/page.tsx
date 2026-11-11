@@ -65,17 +65,38 @@ async function traerVentas(db: ReturnType<typeof clienteServidor>, desde: string
   return ventas;
 }
 
+/** Pedidos pagados de la tienda online como si fueran ventas (local 0 = Tienda online). */
+async function traerPedidosWeb(db: ReturnType<typeof clienteServidor>, desde: string, hasta: string) {
+  const { data, error } = await db.from("pedidos_web")
+    .select("id, creado_en, total, costo_envio, pedidos_web_items(producto_id, sku, nombre, cantidad, precio)")
+    .in("estado", ["a_preparar", "preparado", "entregado"])
+    .gte("creado_en", `${desde}T00:00:00-03:00`).lt("creado_en", `${sumarDias(hasta, 1)}T00:00:00-03:00`).limit(5000);
+  if (error) return []; // todavía sin la migración 0028
+  return (data ?? []).map((p): VentaRep => {
+    const items = ((p.pedidos_web_items ?? []) as { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; precio: number }[])
+      .map((i) => ({ producto_id: i.producto_id, sku: i.sku, nombre: i.nombre, cantidad: Number(i.cantidad), total: Number(i.cantidad) * Number(i.precio) }));
+    const cobrado = Math.max(0, Number(p.total) - Number(p.costo_envio ?? 0)); // lo de productos, sin el envío
+    const lista = items.reduce((s, i) => s + i.total, 0);
+    // El descuento por transferencia (y cupones) se reparte entre los productos, como en la caja
+    if (lista - cobrado > 0.5) items.push({ producto_id: null, sku: null, nombre: "Descuento tienda online", cantidad: 1, total: -(lista - cobrado) });
+    return { id: `web-${p.id}`, local_id: 0, creada_en: p.creado_en, medio_pago: "web", total: cobrado, giftcard_monto: 0, items };
+  });
+}
+
 export default async function Reportes({ searchParams }: { searchParams: Promise<{ p?: string; desde?: string; hasta?: string; local?: string }> }) {
   await soloDuenio();
   const sp = await searchParams;
   const [desde, hasta, clave] = periodo(sp.p, sp.desde, sp.hasta);
   const local = sp.local === "1" || sp.local === "2" ? Number(sp.local) : null;
+  const soloWeb = sp.local === "web";
   const largo = diasEntre(desde, hasta) + 1;
   const db = clienteServidor();
-  const [ventas, anteriores] = await Promise.all([
-    traerVentas(db, desde, hasta, local),
-    traerVentas(db, sumarDias(desde, -largo), sumarDias(desde, -1), local),
-  ]);
+  // Locales: solo sus cajas. Los dos locales: cajas + tienda online. Tienda online: solo pedidos.
+  const traer = async (d: string, h: string) => [
+    ...(soloWeb ? [] : await traerVentas(db, d, h, local)),
+    ...(local ? [] : await traerPedidosWeb(db, d, h)),
+  ];
+  const [ventas, anteriores] = await Promise.all([traer(desde, hasta), traer(sumarDias(desde, -largo), sumarDias(desde, -1))]);
   const ids = [...new Set([...ventas, ...anteriores].flatMap((v) => v.items.map((i) => i.producto_id)).filter(Boolean) as string[])];
   const productos = new Map<string, ProductoRep>();
   for (let i = 0; i < ids.length; i += 200) {
@@ -92,7 +113,7 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
     return <span className={`text-xs font-semibold ${c >= 0 ? "text-green-700" : "text-red-700"}`}>{c >= 0 ? "▲" : "▼"} {Math.abs(c)}% vs período anterior</span>;
   };
   const url = (extra: Record<string, string>) => {
-    const q = new URLSearchParams({ ...(sp.p ? { p: sp.p } : {}), ...(sp.desde ? { desde: sp.desde, hasta: sp.hasta ?? "" } : {}), ...(local ? { local: String(local) } : {}), ...extra });
+    const q = new URLSearchParams({ ...(sp.p ? { p: sp.p } : {}), ...(sp.desde ? { desde: sp.desde, hasta: sp.hasta ?? "" } : {}), ...(local || soloWeb ? { local: soloWeb ? "web" : String(local) } : {}), ...extra });
     for (const [k, v] of [...q.entries()]) if (!v) q.delete(k);
     return `/reportes?${q}`;
   };
@@ -105,10 +126,10 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Reportes</h1>
-          <p className="text-sm text-suave">Del {new Date(`${desde}T12:00:00Z`).toLocaleDateString("es-AR")} al {new Date(`${hasta}T12:00:00Z`).toLocaleDateString("es-AR")} · {local === 1 ? "Magnolia Home" : local === 2 ? "Magnolia Beauty" : "los dos locales"}</p>
+          <p className="text-sm text-suave">Del {new Date(`${desde}T12:00:00Z`).toLocaleDateString("es-AR")} al {new Date(`${hasta}T12:00:00Z`).toLocaleDateString("es-AR")} · {local === 1 ? "Magnolia Home" : local === 2 ? "Magnolia Beauty" : soloWeb ? "tienda online" : "los dos locales y la tienda online"}</p>
         </div>
         <form className="flex flex-wrap items-center gap-2 text-sm">
-          {local && <input type="hidden" name="local" value={local} />}
+          {(local || soloWeb) && <input type="hidden" name="local" value={soloWeb ? "web" : local ?? ""} />}
           <input type="date" name="desde" defaultValue={desde} className="rounded-lg border border-linea bg-white px-2 py-1.5" />
           <span className="text-suave">al</span>
           <input type="date" name="hasta" defaultValue={hasta} className="rounded-lg border border-linea bg-white px-2 py-1.5" />
@@ -120,12 +141,12 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
           <Link key={k} href={url({ p: k, desde: "", hasta: "" })} className={`rounded-full border px-3 py-1.5 ${clave === k ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{t}</Link>
         ))}
         <span className="mx-1 text-linea">|</span>
-        {[["", "Los dos locales"], ["1", "Home"], ["2", "Beauty"]].map(([k, t]) => (
-          <Link key={k} href={url({ local: k })} className={`rounded-full border px-3 py-1.5 ${String(local ?? "") === k ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{t}</Link>
+        {[["", "Todo"], ["1", "Home"], ["2", "Beauty"], ["web", "Tienda online"]].map(([k, t]) => (
+          <Link key={k} href={url({ local: k })} className={`rounded-full border px-3 py-1.5 ${(soloWeb ? "web" : String(local ?? "")) === k ? "border-marca bg-marca text-white" : "border-linea bg-white"}`}>{t}</Link>
         ))}
       </div>
 
-      {r.ventas === 0 && <p className="tarjeta text-sm text-suave">No hay ventas en este período{local ? " para este local" : ""}.</p>}
+      {r.ventas === 0 && <p className="tarjeta text-sm text-suave">No hay ventas en este período{local ? " para este local" : soloWeb ? " en la tienda online" : ""}.</p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="tarjeta !p-4"><p className="text-sm text-suave">Vendido en productos</p><p className="text-2xl font-semibold">{pesos(r.ingreso)}</p>{flecha(r.ingreso, a.ingreso)}</div>
         <div className="tarjeta !p-4"><p className="text-sm text-suave">Ganancia estimada</p><p className="text-2xl font-semibold">{pesos(r.ganancia)}</p>
@@ -136,18 +157,18 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
 
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="tarjeta">
-          <h2 className="font-semibold">Plata que entró a la caja</h2>
+          <h2 className="font-semibold">Cobrado por medio</h2>
           <ul className="mt-2 space-y-1 text-sm">
             {r.porMedio.filter(([, v]) => v !== 0).map(([m, v]) => <li key={m} className="flex justify-between"><span>{nombreMedio(m)}</span><b className="tabular-nums">{pesos(v)}</b></li>)}
             <li className="flex justify-between border-t border-linea pt-1"><span>Total cobrado</span><b>{pesos(r.cobrado)}</b></li>
           </ul>
-          <p className="mt-2 text-xs text-suave">Incluye {pesos(r.giftcardsVendidas)} de gift cards vendidas. Se usaron {pesos(r.giftcardsUsadas)} de gift cards (no entran a la caja){r.devoluciones ? ` y se devolvieron ${pesos(r.devoluciones)} en cambios` : ""}.</p>
+          <p className="mt-2 text-xs text-suave">{r.porMedio.some(([m]) => m === "web") ? "Tienda online: lo cobrado por productos, sin el costo de envío (no pasa por la caja). " : ""}Incluye {pesos(r.giftcardsVendidas)} de gift cards vendidas. Se usaron {pesos(r.giftcardsUsadas)} de gift cards (no entran a la caja){r.devoluciones ? ` y se devolvieron ${pesos(r.devoluciones)} en cambios` : ""}.</p>
         </section>
         <section className="tarjeta">
-          <h2 className="font-semibold">Por local</h2>
+          <h2 className="font-semibold">Por local y canal</h2>
           <ul className="mt-2 space-y-2 text-sm">
             {r.porLocal.map(([l, x]) => (
-              <li key={l}><div className="flex justify-between"><span>{l === 2 ? "Magnolia Beauty" : "Magnolia Home"}</span><b>{pesos(x.ingreso)}</b></div>
+              <li key={l}><div className="flex justify-between"><span>{l === 0 ? "Tienda online" : l === 2 ? "Magnolia Beauty" : "Magnolia Home"}</span><b>{pesos(x.ingreso)}</b></div>
                 <div className="mt-1 h-1.5 rounded bg-marca/70" style={{ width: `${Math.max(2, (x.ingreso / (r.ingreso || 1)) * 100)}%` }} />
                 <span className="text-xs text-suave">{x.ventas} ventas · ticket {pesos(x.ventas ? x.ingreso / x.ventas : 0)}</span></li>
             ))}

@@ -1,7 +1,7 @@
 import { descuentosPromo, montoDescuentoManual, type DescuentoManual, type LineaDescuento, type Promo, type UnidadPromo } from "./promos";
 // Lógica de la caja (se usa en el navegador y en el servidor).
 
-export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr" | "giftcard" | "cambio" | "cuenta";
+export type MedioPago = "efectivo" | "transferencia" | "debito" | "credito" | "cuotas" | "qr" | "giftcard" | "cambio" | "cuenta" | "web";
 export type TipoPrecio = "efectivo" | "diez" | "lista";
 
 // efectivo: precio con 15% de la planilla · diez: 10% sobre lista · lista: sin descuento
@@ -17,6 +17,8 @@ export const MEDIOS: { id: MedioPago; nombre: string; precio: TipoPrecio; oculto
   { id: "cambio", nombre: "Cambio", precio: "lista", oculto: true },
   // Solo para Martín y Sofi (la caja lo muestra únicamente a los dueños)
   { id: "cuenta", nombre: "Cuenta corriente", precio: "lista", oculto: true },
+  // Ventas de la tienda online (no pasan por la caja; solo para reportes)
+  { id: "web", nombre: "Tienda online", precio: "lista", oculto: true },
 ];
 export const MEDIOS_CAJA = MEDIOS.filter((m) => !m.oculto);
 export const nombreMedio = (id: string) => MEDIOS.find((m) => m.id === id)?.nombre ?? id;

@@ -89,7 +89,7 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
     sinCostoIngreso, margen: ingreso - sinCostoIngreso > 0 ? ganancia / (ingreso - sinCostoIngreso) : 0,
     ticketPromedio: conProductos ? ingreso / conProductos : 0,
     porMedio: [...porMedio.entries()].sort((a, b) => b[1] - a[1]),
-    porLocal: [...porLocal.entries()].sort((a, b) => a[0] - b[0]),
+    porLocal: [...porLocal.entries()].sort((a, b) => (a[0] || 9) - (b[0] || 9)), // 0 = tienda online, al final
     porCategoria: orden(porCategoria), porProveedor: orden(porProveedor),
     masVendidos: [...porProducto.values()].sort((a, b) => b.unidades - a.unidades || b.ingreso - a.ingreso).slice(0, 25),
     porHora, porDia, porFecha: [...porFecha.entries()].sort((a, b) => a[0].localeCompare(b[0])),

@@ -46,3 +46,23 @@ describe("costos por medio de pago", () => {
     expect(Math.round(d.comisiones)).toBe(10150);
   });
 });
+
+describe("ventas de la tienda online en reportes", () => {
+  it("reparte el descuento por transferencia entre los productos y va como canal aparte", () => {
+    // 2 productos a lista $10.000 + $5.000; pagó con 15% off → $12.750 de productos
+    const v = {
+      id: "web-1", local_id: 0, creada_en: "2026-11-11T15:00:00Z", medio_pago: "web", total: 12750, giftcard_monto: 0,
+      items: [
+        { producto_id: "a", sku: "A", nombre: "Mug", cantidad: 1, total: 10000 },
+        { producto_id: "b", sku: "B", nombre: "Vela", cantidad: 1, total: 5000 },
+        { producto_id: null, sku: null, nombre: "Descuento tienda online", cantidad: 1, total: -2250 },
+      ],
+    };
+    const prods = new Map([["a", { id: "a", costo: 4000, categoria: "Mugs", proveedor: "X" }], ["b", { id: "b", costo: 2000, categoria: "Velas", proveedor: "Y" }]]);
+    const r = calcularReporte([v], prods, { web: 5 });
+    expect(r.ingreso).toBeCloseTo(12750);
+    expect(r.porLocal).toEqual([[0, { ventas: 1, cobrado: 12750, ingreso: 12750 }]]);
+    expect(r.porMedio).toEqual([["web", 12750]]);
+    expect(r.ganancia).toBeCloseTo(12750 - 6000 - 12750 * 0.05);
+  });
+});
