@@ -8,13 +8,13 @@ import { type CredencialesTN, tn } from "./tiendanube";
 /** Categorías de la tienda: principal → subcategorías (así están creadas en Tiendanube). */
 export const ARBOL_TIENDA: Record<string, string[]> = {
   "Cocina": ["Utensilios", "Cocción", "Pavas y cafeteras", "Tablas", "Fuentes y tuppers", "Frascos y condimenteros", "Termos y mates"],
-  "Mesa": ["Platos", "Bowls y ensaladeras", "Copas y vasos", "Mugs y tazas", "Fruteras", "Manteles"],
+  "Mesa": ["Platos", "Bowls y ensaladeras", "Copas y vasos", "Mugs y tazas", "Botellas y jarras", "Fruteras", "Manteles"],
   "Cama": ["Sábanas", "Acolchados y edredones"],
-  "Baño": ["Sets y dispensers", "Cortinas de baño"],
-  "Living": ["Almohadones", "Cortinas"],
-  "Decoración": ["Velas", "Home spray y difusores", "Floreros", "Espejos", "Lámparas", "Cuadros"],
-  "Accesorios y moda": [],
-  "Carteras, billeteras y mochilas": [],
+  "Baño": ["Toallas", "Sets y dispensers", "Cortinas de baño"],
+  "Living": ["Almohadones", "Mantas", "Alfombras", "Cortinas", "Canastos y organizadores"],
+  "Decoración": ["Velas", "Home spray y difusores", "Floreros", "Espejos", "Lámparas", "Cuadros", "Plantas artificiales", "Navidad"],
+  "Accesorios y moda": ["Aros", "Collares", "Pulseras", "Anillos", "Accesorios de pelo", "Cintos", "Bufandas, gorros y guantes", "Llaveros"],
+  "Carteras, billeteras y mochilas": ["Carteras y bolsos", "Mochilas y riñoneras", "Billeteras"],
 };
 /** Todas, para elegir en las equivalencias (las subcategorías ya incluyen su principal al publicar). */
 export const CATEGORIAS_TIENDA = Object.entries(ARBOL_TIENDA).flatMap(([p, hijas]) => [p, ...hijas]);
@@ -25,12 +25,42 @@ export function stockOnline(cantidades: number[]): number {
   return max >= 2 ? max - 1 : max;
 }
 
+/** Por el nombre del producto, para categorías del sistema que mezclan cosas (ej. "Termos/Botellas/Jarras"). */
+export function categoriaPorNombre(nombre: string): string | null {
+  const n = nombre.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  if (/\bbotell|\bjarras?\b|licorer|aceiter/.test(n)) return "Botellas y jarras";
+  if (/\btermos?\b/.test(n)) return "Termos y mates";
+  if (/alfombr/.test(n)) return "Alfombras";
+  if (/\bmantas?\b|\bplaid|pie de cama/.test(n)) return "Mantas";
+  return null;
+}
+
+/** La categoría de la tienda para un producto: por nombre (casos mezclados), la equivalencia elegida a mano o la sugerida. */
+export function categoriaTienda(categoria: string | null, nombre: string, equivalencia: Map<string, string | null>): string | null {
+  return categoriaPorNombre(nombre) ?? (categoria ? equivalencia.get(categoria) ?? sugerirCategoria(categoria) : null);
+}
+
 /** Sugerencia de categoría de la tienda para una categoría del sistema (se puede cambiar a mano). */
 export function sugerirCategoria(cat: string): string | null {
   const c = cat.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const reglas: [RegExp, string][] = [
-    [/carter|billeter|mochil|bolso|rinon|neceser|monedero|marroquin/, "Carteras, billeteras y mochilas"],
-    [/bijou|\baros?\b|collar|pulser|anillo|accesori|pelo|hebill|vincha|panuelo|bufand|lente|reloj|moda|beauty|maquill|cosmet/, "Accesorios y moda"],
+    [/mochil|rinon|morral/, "Mochilas y riñoneras"],
+    [/billeter|monedero|tarjeter/, "Billeteras"],
+    [/carter|bolso|maletin|neceser|marroquin/, "Carteras y bolsos"],
+    [/\baros?\b|aritos?/, "Aros"],
+    [/collar|cadenit/, "Collares"],
+    [/pulser|brazalet/, "Pulseras"],
+    [/anillo/, "Anillos"],
+    [/pelo|hebill|vincha|broche|prendedor/, "Accesorios de pelo"],
+    [/cinto|faja/, "Cintos"],
+    [/bufand|cuello|gorro|guante|ruana|orejer/, "Bufandas, gorros y guantes"],
+    [/llavero/, "Llaveros"],
+    [/bijou|accesori|panuelo|lente|moda|beauty|maquill|cosmet/, "Accesorios y moda"],
+    [/navid|navide/, "Navidad"],
+    [/planta/, "Plantas artificiales"],
+    [/toall/, "Toallas"],
+    [/canasto|organizador/, "Canastos y organizadores"],
+    [/\bmantas?\b|plaid/, "Mantas"],
     [/pava|cafeter/, "Pavas y cafeteras"],
     [/termo|\bmates?\b|bombill/, "Termos y mates"],
     [/frasco|condiment|especier/, "Frascos y condimenteros"],
@@ -109,13 +139,19 @@ async function idsCategorias(c: CredencialesTN, nombres: string[]): Promise<IdsC
   const mapa = new Map(lista.map((x) => [nombreCat(x).trim().toLowerCase(), x.id]));
   const padre = new Map(lista.map((x) => [x.id, x.parent || 0]));
   const out: IdsCat = new Map();
+  const crear = async (n: string): Promise<number> => {
+    const ya = mapa.get(n.toLowerCase());
+    if (ya) return ya;
+    // Una subcategoría se crea adentro de su principal (creando la principal si falta)
+    const madre = Object.entries(ARBOL_TIENDA).find(([, hijas]) => hijas.includes(n))?.[0];
+    const parent = madre ? await crear(madre) : null;
+    const nueva = await llamar<TNCategoria>(c, "/categories", { method: "POST", body: { name: { es: n }, ...(parent ? { parent } : {}) } });
+    mapa.set(n.toLowerCase(), nueva.id);
+    padre.set(nueva.id, parent ?? 0);
+    return nueva.id;
+  };
   for (const n of nombres) {
-    let id = mapa.get(n.toLowerCase());
-    if (!id) {
-      const nueva = await llamar<TNCategoria>(c, "/categories", { method: "POST", body: { name: { es: n } } });
-      id = nueva.id;
-      mapa.set(n.toLowerCase(), id);
-    }
+    const id = await crear(n);
     const cadena = [id];
     for (let p = padre.get(id) ?? 0, i = 0; p && i < 5; p = padre.get(p) ?? 0, i++) cadena.push(p);
     out.set(n, cadena);
@@ -166,10 +202,10 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
   if (aCrear.length) {
     const { data: eq } = await db.from("tn_categorias").select("categoria, tn_categoria");
     const equivalencia = new Map((eq ?? []).map((e) => [String(e.categoria), e.tn_categoria as string | null]));
-    const nombres = [...new Set(aCrear.map((t) => (t.p.categoria ? equivalencia.get(t.p.categoria) ?? sugerirCategoria(t.p.categoria) : null)).filter((x): x is string => !!x))];
+    const nombres = [...new Set(aCrear.map((t) => categoriaTienda(t.p.categoria, t.p.nombre, equivalencia)).filter((x): x is string => !!x))];
     cats = await idsCategorias(c, nombres);
     for (const t of aCrear) (t as typeof t & { catIds?: number[] }).catIds = (() => {
-      const n = t.p.categoria ? equivalencia.get(t.p.categoria) ?? sugerirCategoria(t.p.categoria) : null;
+      const n = categoriaTienda(t.p.categoria, t.p.nombre, equivalencia);
       return n ? cats.get(n) : undefined;
     })();
   }
