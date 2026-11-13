@@ -95,6 +95,7 @@ export async function POST(req: Request) {
       if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
       const urlColor = `${db.storage.from(BUCKET_FOTOS).getPublicUrl(rutaColor).data.publicUrl}?v=${Date.now().toString(36)}`;
       await db.from("producto_variantes").update({ imagen_url: urlColor, actualizado_en: ahora }).eq("id", v.id);
+      await db.from("producto_variantes").update({ tn_imagen: null }).eq("id", v.id); // cargada a mano: la de Tiendanube no la pisa
       color = { id: v.id, color: v.color, url: urlColor };
     }
   }
@@ -125,6 +126,7 @@ export async function POST(req: Request) {
   // ?v= para que las compus no sigan mostrando la foto anterior si se reemplaza
   const url = `${db.storage.from(BUCKET_FOTOS).getPublicUrl(ruta).data.publicUrl}?v=${Date.now().toString(36)}`;
   const { error } = await db.from("productos").update({ imagen_url: url, actualizado_en: ahora }).eq("id", producto.id);
+  if (!error) await db.from("productos").update({ tn_imagen: null }).eq("id", producto.id); // cargada a mano: la de Tiendanube no la pisa
   if (error) return NextResponse.json({ error: /imagen_url/.test(error.message) ? "Falta correr la migración 0031_fotos_productos.sql en Supabase." : error.message }, { status: 500 });
   return NextResponse.json({ estado: "ok", producto: { id: producto.id, sku: producto.sku, nombre: producto.nombre }, url, color, bytes: webp.length, reemplazo: !!producto.imagen_url });
 }
