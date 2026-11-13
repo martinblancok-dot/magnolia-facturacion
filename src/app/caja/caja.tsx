@@ -173,11 +173,13 @@ export function Caja() {
   const actualizarCatalogo = useCallback(async () => {
     try {
       const actual = await leer<Catalogo>("catalogo");
-      const r = await fetch(`/api/catalogo${actual?.version ? `?version=${encodeURIComponent(actual.version)}` : ""}`, { cache: "no-store" });
+      // Un catálogo guardado sin colores (de antes de este arreglo) se baja entero de nuevo
+      const version = actual?.variantes ? actual.version : null;
+      const r = await fetch(`/api/catalogo${version ? `?version=${encodeURIComponent(version)}` : ""}`, { cache: "no-store" });
       if (r.status === 401) { setEstado("sin-sesion"); return; }
       if (!r.ok) throw new Error();
       const d = await r.json();
-      if (d.sinCambios && actual) {
+      if (d.sinCambios && actual?.variantes) {
         // Nada cambió: no hace falta bajar los 6.000 productos otra vez
         const c = { ...actual, guardado: new Date().toISOString() };
         await guardar("catalogo", c);
@@ -185,7 +187,7 @@ export function Caja() {
         setEstado("conectado");
         return;
       }
-      const c: Catalogo = { version: d.version, productos: d.productos, promos: d.promos ?? [], locales: d.locales, guardado: new Date().toISOString() };
+      const c: Catalogo = { version: d.version, productos: d.productos, variantes: d.variantes ?? {}, promos: d.promos ?? [], locales: d.locales, guardado: new Date().toISOString() };
       await guardar("catalogo", c);
       setCatalogo(c);
       setEstado("conectado");
