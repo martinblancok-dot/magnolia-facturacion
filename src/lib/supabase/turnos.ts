@@ -38,7 +38,7 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
     db.from("ventas").select("*").eq("turno_id", t.id).order("creada_en"),
     db.from("caja_movimientos").select("tipo, monto, motivo, creado_en").eq("turno_id", t.id).order("creado_en"),
     // ventas no-efectivo de los DOS locales en el período: un mismo cobro de MP puede ser del otro local
-    db.from("ventas").select("*")
+    db.from("ventas").select("*").eq("prueba", false) // las de la caja de prueba no compiten por los cobros reales
       .neq("medio_pago", "efectivo").gte("creada_en", minutos(t.abierta_en, -MINUTOS_DESPUES)).lte("creada_en", minutos(hasta, MINUTOS_ANTES)),
     db.from("cobros").select("id, fecha_hora, importe, origen")
       .gte("fecha_hora", minutos(t.abierta_en, -MINUTOS_ANTES)).lte("fecha_hora", minutos(hasta, MINUTOS_DESPUES)),
@@ -83,7 +83,7 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
 
 /** Pagos de cuentas corrientes con transferencia/tarjeta/QR, como "ventas" para cruzarlos con los cobros de MP. */
 async function pagosCCParaCruce(db: SupabaseClient, desde: string, hasta: string): Promise<VentaTurno[]> {
-  const { data, error } = await db.from("cc_pagos").select("id, creado_en, medio, monto").eq("anulado", false).neq("medio", "efectivo")
+  const { data, error } = await db.from("cc_pagos").select("id, creado_en, medio, monto").eq("anulado", false).eq("prueba", false).neq("medio", "efectivo")
     .gte("creado_en", desde).lte("creado_en", hasta).limit(2000);
   if (error) return []; // sin la migración 0026
   return (data ?? []).map((p) => ({ id: p.id, creada_en: p.creado_en, medio_pago: p.medio as MedioPago, total: Number(p.monto) }));
@@ -100,7 +100,7 @@ export async function confirmarTransferenciasConCaja(db: SupabaseClient, desdeIS
   const hasta = new Date().toISOString();
   const [{ data: cobros, error: e1 }, { data: ventas, error: e2 }] = await Promise.all([
     db.from("cobros").select("id, fecha_hora, importe, origen, estado").gte("fecha_hora", minutos(desdeISO, -MINUTOS_DESPUES)).lte("fecha_hora", hasta).limit(5000),
-    db.from("ventas").select("*").eq("anulada", false).neq("medio_pago", "efectivo")
+    db.from("ventas").select("*").eq("anulada", false).eq("prueba", false).neq("medio_pago", "efectivo")
       .gte("creada_en", minutos(desdeISO, -MINUTOS_DESPUES)).lte("creada_en", hasta).limit(5000),
   ]);
   if (e1 || e2 || !cobros?.length) return 0;

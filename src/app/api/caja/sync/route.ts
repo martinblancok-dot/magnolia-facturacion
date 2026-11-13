@@ -1,7 +1,7 @@
 // Recibe aperturas de caja y retiros/gastos que la caja tenía guardados (pudieron hacerse sin internet).
 import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/almacen";
-import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
+import { perfilDe, usuarioDeLaSesion } from "@/lib/supabase/sesion";
 
 const esId = (x: unknown) => /^[0-9a-f-]{36}$/i.test(String(x));
 const esFecha = (x: unknown) => !isNaN(Date.parse(String(x)));
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => null)) as { turnos?: Record<string, unknown>[]; movimientos?: Record<string, unknown>[] } | null;
   const db = clienteServidor();
   const recibidos: string[] = [];
+  let duenio: boolean | null = null;
 
   for (const t of (b?.turnos ?? []).slice(0, 50)) {
     if (!esId(t.id) || ![1, 2].includes(Number(t.local_id)) || !esFecha(t.abierta_en) || !(Number(t.fondo_inicial) >= 0)) continue;
@@ -19,6 +20,12 @@ export async function POST(req: Request) {
       id: t.id, local_id: Number(t.local_id), terminal: String(t.terminal ?? "").slice(0, 40), abierta_en: t.abierta_en,
       abierta_por: u.id, fondo_inicial: Number(t.fondo_inicial),
     };
+    // Caja de prueba: solo los dueños
+    if (t.prueba === true) {
+      if (duenio === null) duenio = (await perfilDe(u.id)).rol === "duenio";
+      if (!duenio) continue;
+      fila.prueba = true;
+    }
     const ap = t.apertura as Record<string, unknown> | null | undefined;
     const apertura = ap && typeof ap === "object" ? {
       billetes: Object.fromEntries(Object.entries((ap.billetes ?? {}) as Record<string, unknown>).filter(([k]) => /^\d+$/.test(k)).map(([k, v]) => [k, Math.max(0, Math.round(Number(v) || 0))])),
@@ -46,12 +53,14 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   const u = await usuarioDeLaSesion();
   if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
-  const local = Number(new URL(req.url).searchParams.get("local"));
+  const sp = new URL(req.url).searchParams;
+  const local = Number(sp.get("local"));
+  const prueba = sp.get("prueba") === "1";
   if (![1, 2].includes(local)) return NextResponse.json({ error: "local inválido" }, { status: 400 });
   const db = clienteServidor();
   const [{ data: abierto }, { data: ultimo }] = await Promise.all([
-    db.from("turnos_caja").select("id, local_id, terminal, abierta_en, fondo_inicial").eq("local_id", local).is("cerrada_en", null).order("abierta_en", { ascending: false }).limit(1).maybeSingle(),
-    db.from("turnos_caja").select("deja_en_caja, cerrada_en").eq("local_id", local).not("cerrada_en", "is", null).order("cerrada_en", { ascending: false }).limit(1).maybeSingle(),
+    db.from("turnos_caja").select("id, local_id, terminal, abierta_en, fondo_inicial, prueba").eq("local_id", local).eq("prueba", prueba).is("cerrada_en", null).order("abierta_en", { ascending: false }).limit(1).maybeSingle(),
+    db.from("turnos_caja").select("deja_en_caja, cerrada_en").eq("local_id", local).eq("prueba", prueba).not("cerrada_en", "is", null).order("cerrada_en", { ascending: false }).limit(1).maybeSingle(),
   ]);
   return NextResponse.json({ abierto, ultimoDeja: ultimo?.deja_en_caja ?? null });
 }

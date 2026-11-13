@@ -14,7 +14,7 @@ export default async function Cierres({ searchParams }: { searchParams: Promise<
   const dia = /^\d{4}-\d{2}-\d{2}$/.test(sp.dia ?? "") ? sp.dia! : "";
   const hoy = diaDe(new Date());
   const db = clienteServidor();
-  let q = db.from("turnos_caja").select("id, local_id, abierta_en, cerrada_en, fondo_inicial, efectivo_esperado, efectivo_contado, diferencia, resumen").order("abierta_en", { ascending: false }).limit(60);
+  let q = db.from("turnos_caja").select("id, local_id, abierta_en, cerrada_en, fondo_inicial, efectivo_esperado, efectivo_contado, diferencia, resumen").eq("prueba", false).order("abierta_en", { ascending: false }).limit(60);
   if (dia) {
     const sig = new Date(`${dia}T12:00:00Z`); sig.setUTCDate(sig.getUTCDate() + 1);
     q = q.gte("abierta_en", `${dia}T00:00:00-03:00`).lt("abierta_en", `${sig.toISOString().slice(0, 10)}T00:00:00-03:00`);

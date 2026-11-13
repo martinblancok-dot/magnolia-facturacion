@@ -69,10 +69,10 @@ export async function registrarPagoCC(db: SupabaseClient, p: { cliente_id: strin
   if (!(MEDIOS_PAGO_CC as readonly string[]).includes(p.medio)) throw new Error("Medio de pago inválido.");
   const { data: cliente } = await db.from("clientes_cc").select("id, nombre").eq("id", p.cliente_id).maybeSingle();
   if (!cliente) throw new Error("No encontré la clienta.");
-  let turno: { id: string; local_id: number } | null = null;
+  let turno: { id: string; local_id: number; prueba?: boolean } | null = null;
   if (p.turno_id) {
-    const { data } = await db.from("turnos_caja").select("id, local_id, cerrada_en").eq("id", p.turno_id).maybeSingle();
-    if (data && !data.cerrada_en) turno = { id: data.id, local_id: data.local_id };
+    const { data } = await db.from("turnos_caja").select("id, local_id, cerrada_en, prueba").eq("id", p.turno_id).maybeSingle();
+    if (data && !data.cerrada_en) turno = { id: data.id, local_id: data.local_id, prueba: !!data.prueba };
   }
   const id = crypto.randomUUID();
   let movimiento_id: string | null = null;
@@ -81,7 +81,7 @@ export async function registrarPagoCC(db: SupabaseClient, p: { cliente_id: strin
     const { error } = await db.from("caja_movimientos").insert({ id: movimiento_id, turno_id: turno.id, tipo: "ingreso", monto, motivo: `Pago cuenta corriente: ${cliente.nombre}`, creado_en: new Date().toISOString(), usuario_id: p.usuario_id });
     if (error) throw new Error(error.message);
   }
-  const { error } = await db.from("cc_pagos").insert({ id, cliente_id: p.cliente_id, monto, medio: p.medio, turno_id: turno?.id ?? null, movimiento_id, local_id: turno?.local_id ?? null, nota: p.nota?.slice(0, 200) || null, usuario_id: p.usuario_id });
+  const { error } = await db.from("cc_pagos").insert({ id, cliente_id: p.cliente_id, monto, medio: p.medio, turno_id: turno?.id ?? null, movimiento_id, local_id: turno?.local_id ?? null, nota: p.nota?.slice(0, 200) || null, usuario_id: p.usuario_id, ...(turno?.prueba ? { prueba: true } : {}) });
   if (error) {
     if (movimiento_id) await db.from("caja_movimientos").delete().eq("id", movimiento_id);
     throw new Error(error.message);

@@ -180,6 +180,8 @@ export interface VentaParaSubir {
   /** Pago con gift card: cuánto se descuenta de su saldo (no entra a la caja). */
   giftcard_id?: string | null;
   giftcard_monto?: number;
+  /** Venta de la caja de prueba (solo dueños): no toca stock ni aparece en ventas ni reportes. */
+  prueba?: boolean;
 }
 
 // ---------- Gift cards ----------

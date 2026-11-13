@@ -47,6 +47,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     resumen: { ...c.resumen, alertas: c.alertas, top: c.top }, notas: String(b.notas ?? "").slice(0, 500) || null,
   }).eq("id", id).is("cerrada_en", null);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Caja de prueba: no confirma transferencias ni manda el resumen por mail
+  if ((c.turno as { prueba?: boolean }).prueba) return NextResponse.json({ ok: true, contado, esperado: c.resumen.efectivoEsperado, aviso: null });
   // Al cerrar: las transferencias de este turno que coinciden con ventas pasan solas a "Por facturar"
   try { await confirmarTransferenciasConCaja(db, c.turno.abierta_en); } catch {}
   const aviso = await avisarCierre(db, id);

@@ -22,11 +22,12 @@ function hace(horas: number) {
   return new Date(Date.now() - horas * 3600_000).toISOString();
 }
 
-export default async function Ventas({ searchParams }: { searchParams: Promise<{ dia?: string; local?: string; codigo?: string }> }) {
+export default async function Ventas({ searchParams }: { searchParams: Promise<{ dia?: string; local?: string; codigo?: string; prueba?: string }> }) {
   const { rol, u } = await usuarioConRol();
   const duenio = rol === "duenio";
   const db = clienteServidor();
   const sp = await searchParams;
+  const verPrueba = duenio && sp.prueba === "1"; // ventas de la caja de prueba (aparte de las reales)
   const hoy = diaArgentina();
   const dia = sp.dia && /^\d{4}-\d{2}-\d{2}$/.test(sp.dia) ? sp.dia : hoy;
   const local = sp.local === "1" || sp.local === "2" ? Number(sp.local) : null;
@@ -68,7 +69,8 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
     + (producto ? ", coincide:venta_items!inner(n)" : "");
   const PEDIDOS = ", anulacion_pedida_por, anulacion_pedida_en, anulacion_motivo, anulacion_rechazada_en";
   const consulta = (cols: string) => {
-    let q = db.from("ventas").select(cols).order("creada_en", { ascending: false }).limit(producto ? 100 : 1000);
+    let q = db.from("ventas").select(cols).eq("prueba", verPrueba).order("creada_en", { ascending: false }).limit(producto ? 100 : 1000);
+    if (verPrueba) return q;
     if (rango) q = q.gte("id", rango[0]).lte("id", rango[1]);
     else if (producto) {
       const nombre = `nombre.ilike.%${producto.texto.split(/\s+/).join("%")}%`;
@@ -118,7 +120,8 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{misTurnos ? "Ventas de tu caja" : "Ventas"}</h1>
+          <h1 className="text-2xl font-semibold">{verPrueba ? "Ventas de la caja de prueba" : misTurnos ? "Ventas de tu caja" : "Ventas"}</h1>
+          {verPrueba && <p className="text-sm text-orange-800">No cuentan en nada. Se borran desde Configuración → Caja de prueba. <Link href="/ventas" className="underline">Volver a las ventas reales</Link></p>}
           {misTurnos ? (
             <p className="text-sm text-suave">
               {misTurnos.length
@@ -131,7 +134,7 @@ export default async function Ventas({ searchParams }: { searchParams: Promise<{
               <Link href="/giftcards" className="text-sm text-marca underline">Gift cards →</Link></span>
           )}
         </div>
-        {!misTurnos && <DiaSelector dia={dia} hoy={hoy} ruta="/ventas" extra={local ? { local: String(local) } : {}} />}
+        {!misTurnos && !verPrueba && <DiaSelector dia={dia} hoy={hoy} ruta="/ventas" extra={local ? { local: String(local) } : {}} />}
       </div>
 
       {pendientes.length > 0 && (

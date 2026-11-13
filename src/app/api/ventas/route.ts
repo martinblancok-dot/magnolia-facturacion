@@ -21,6 +21,16 @@ export async function POST(req: Request) {
     if (error) { rechazadas.push({ id, motivo: error }); continue; }
     // Descuento manual de un colaborador: tiene que estar autorizado por un dueño (y por ese mismo descuento)
     const x = v as VentaParaSubir;
+    // Caja de prueba: solo los dueños (una venta "de prueba" no descuenta stock ni aparece en reportes)
+    let deCajaPrueba = x.prueba === true;
+    if (!deCajaPrueba && x.turno_id) {
+      const { data: t } = await db.from("turnos_caja").select("prueba").eq("id", x.turno_id).maybeSingle();
+      deCajaPrueba = !!t?.prueba;
+    }
+    if (deCajaPrueba) {
+      if (duenio === null) duenio = (await perfilDe(u.id)).rol === "duenio";
+      if (!duenio) { rechazadas.push({ id, motivo: "la caja de prueba es solo para Martín y Sofi" }); continue; }
+    }
     if (x.items.some((i) => i.descuento_manual)) {
       if (duenio === null) duenio = (await perfilDe(u.id)).rol === "duenio";
       if (!duenio) {

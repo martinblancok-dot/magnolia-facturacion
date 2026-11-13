@@ -1,12 +1,12 @@
 // Lo que la caja guarda en la compu (IndexedDB): el catálogo, las ventas que falta subir
 // y las aperturas/retiros de caja pendientes. Así puede seguir vendiendo aunque se corte internet.
 import type { VentaParaSubir } from "./caja";
+import { clave } from "./modo-prueba";
 
-const DB = "magnolia-caja";
 
 function abrir(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(DB, 2);
+    const r = indexedDB.open(clave("magnolia-caja"), 2);
     r.onupgradeneeded = () => {
       const db = r.result;
       if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
@@ -36,7 +36,7 @@ export const ventasPendientes = () => tx<VentaParaSubir[]>("pendientes", "readon
 export const borrarVenta = (id: string) => tx("pendientes", "readwrite", (s) => s.delete(id));
 
 export interface Apertura { billetes: Record<string, number>; monedas: number; esperado: number | null; diferencia: number | null; nota?: string | null }
-export interface TurnoLocal { id: string; local_id: number; terminal: string; abierta_en: string; fondo_inicial: number; apertura?: Apertura | null }
+export interface TurnoLocal { id: string; local_id: number; terminal: string; abierta_en: string; fondo_inicial: number; apertura?: Apertura | null; prueba?: boolean }
 export interface MovimientoLocal { id: string; turno_id: string; tipo: "retiro" | "gasto" | "ingreso"; monto: number; motivo: string; creado_en: string }
 export type ItemOutbox = { id: string; clase: "turno"; datos: TurnoLocal } | { id: string; clase: "movimiento"; datos: MovimientoLocal };
 

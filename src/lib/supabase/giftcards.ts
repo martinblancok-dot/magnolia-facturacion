@@ -13,6 +13,7 @@ async function enLotes<T>(ids: string[], traer: (lote: string[]) => PromiseLike<
 export async function controlGiftcards(db: SupabaseClient, filtro: { ids?: string[] } = {}) {
   let q = db.from("giftcards").select("*").order("creada_en", { ascending: false }).limit(2000);
   if (filtro.ids) q = q.in("id", filtro.ids);
+  else q = q.eq("prueba", false); // las de la caja de prueba no van a la lista
   const { data, error } = await q;
   if (error) return { error: error.message, tarjetas: [] };
   const tarjetas = ((data ?? []) as TarjetaBase[]).map((t) => ({ ...t, monto: Number(t.monto), saldo: Number(t.saldo) }));

@@ -56,7 +56,7 @@ async function traerVentas(db: ReturnType<typeof clienteServidor>, desde: string
   const ventas: VentaRep[] = [];
   for (let i = 0; i < 30000; i += 1000) {
     let q = db.from("ventas").select("*, venta_items(*)")
-      .eq("anulada", false).gte("creada_en", `${desde}T00:00:00-03:00`).lt("creada_en", `${sumarDias(hasta, 1)}T00:00:00-03:00`).order("creada_en").range(i, i + 999);
+      .eq("anulada", false).eq("prueba", false).gte("creada_en", `${desde}T00:00:00-03:00`).lt("creada_en", `${sumarDias(hasta, 1)}T00:00:00-03:00`).order("creada_en").range(i, i + 999);
     if (local) q = q.eq("local_id", local);
     const { data } = await q;
     ventas.push(...(data ?? []).map((v) => ({ ...v, total: Number(v.total), giftcard_monto: Number(v.giftcard_monto ?? 0), items: (v.venta_items ?? []) as VentaRep["items"] })));

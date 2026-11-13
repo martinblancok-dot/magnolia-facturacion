@@ -2,6 +2,7 @@
 // Recibo X y ticket de cambio, listos para la impresora térmica (80 o 58 mm) o una hoja A4.
 import JsBarcode from "jsbarcode";
 import { useEffect, useRef, useState } from "react";
+import { esPrueba } from "@/lib/modo-prueba";
 import { codigoVenta, DATOS_LOCAL, DIAS_CAMBIO, venceCambio, type Papel, type TipoImpreso, type VentaImpresa } from "@/lib/impresion";
 
 const pesos = (n: number) => new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
@@ -26,6 +27,7 @@ export function Impreso({ venta, tipo }: { venta: VentaImpresa; tipo: TipoImpres
     <div className="impreso">
       <p className="t-centro t-grande">{l.nombre}</p>
       <p className="t-centro">{l.direccion} · General Alvear</p>
+      {esPrueba() && <p className="t-centro t-negrita t-grande">*** PRUEBA · NO VÁLIDO ***</p>}
       <hr />
       {tipo === "constancia" && venta.pagoCC ? (
         <>

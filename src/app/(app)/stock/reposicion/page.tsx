@@ -31,8 +31,8 @@ export default async function Reposicion({ searchParams }: { searchParams: Promi
   const desde = haceDias(periodo);
   const vendidas = new Map<string, [number, number]>();
   for (let i = 0; i < 200000; i += 1000) {
-    const { data } = await db.from("venta_items").select("producto_id, cantidad, ventas!inner(local_id, creada_en, anulada)")
-      .not("producto_id", "is", null).eq("ventas.anulada", false).gte("ventas.creada_en", desde).range(i, i + 999);
+    const { data } = await db.from("venta_items").select("producto_id, cantidad, ventas!inner(local_id, creada_en, anulada, prueba)")
+      .not("producto_id", "is", null).eq("ventas.anulada", false).eq("ventas.prueba", false).gte("ventas.creada_en", desde).range(i, i + 999);
     for (const it of data ?? []) {
       const v = (Array.isArray(it.ventas) ? it.ventas[0] : it.ventas) as { local_id: number } | null;
       const x = vendidas.get(it.producto_id!) ?? [0, 0]; x[v?.local_id === 2 ? 1 : 0] += Number(it.cantidad); vendidas.set(it.producto_id!, x);

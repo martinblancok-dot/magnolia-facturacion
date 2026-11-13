@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PedidosWeb } from "./pedidos-web";
+import { clave, esPrueba, paramPrueba } from "@/lib/modo-prueba";
 import type { PedidoCaja } from "@/lib/tiendanube-pedidos";
 import {
   agregar, armarVenta, armarVentaCambio, armarVentaCambioCuenta, armarVentaGiftcard, cobroCambio, creditoCambio, type CambioEnCurso, type Extras, armarVentaNuevaGiftcard, buscar, cobroConGiftcard, codigoGiftcard, MEDIOS_CAJA, nombreMedio,
@@ -55,13 +56,16 @@ type Estado = "conectado" | "sin-conexion" | "sin-sesion";
 
 function idTerminal(): string {
   try {
-    let t = localStorage.getItem("magnolia-terminal");
-    if (!t) { t = crypto.randomUUID().slice(0, 8); localStorage.setItem("magnolia-terminal", t); }
+    let t = localStorage.getItem(clave("magnolia-terminal"));
+    if (!t) { t = (esPrueba() ? "P-" : "") + crypto.randomUUID().slice(0, 8); localStorage.setItem(clave("magnolia-terminal"), t); }
     return t;
   } catch { return "sin-id"; }
 }
 
 export function Caja() {
+  const [enPrueba, setEnPrueba] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setEnPrueba(esPrueba()); }, []);
   const [catalogo, setCatalogo] = useState<Catalogo | null>(null);
   const [cargandoCat, setCargandoCat] = useState(true);
   const [local, setLocal] = useState<number | null>(null);
@@ -123,14 +127,14 @@ export function Caja() {
     if (!local) return;
     // Las ventas abiertas viven en esta compu (localStorage): se leen recién en el navegador.
     try {
-      const guardados = JSON.parse(localStorage.getItem(`magnolia-carritos-${local}`) ?? "null") as Carrito[] | null;
+      const guardados = JSON.parse(localStorage.getItem(clave(`magnolia-carritos-${local}`)) ?? "null") as Carrito[] | null;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (guardados?.length) { setCarritos(guardados.map((x) => ({ ...carritoNuevo(), ...x, gc: null }))); setActivoId(guardados[0].id); }
     } catch {}
   }, [local]);
   useEffect(() => {
     if (!local) return;
-    try { localStorage.setItem(`magnolia-carritos-${local}`, JSON.stringify(carritos.map((x) => ({ ...x, gc: null })))); } catch {}
+    try { localStorage.setItem(clave(`magnolia-carritos-${local}`), JSON.stringify(carritos.map((x) => ({ ...x, gc: null })))); } catch {}
   }, [carritos, local]);
 
   const enfocar = () => setTimeout(() => entrada.current?.focus(), 30);
@@ -196,7 +200,7 @@ export function Caja() {
   useEffect(() => {
     // El local elegido vive en esta compu (localStorage): se lee recién en el navegador.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    try { const l = Number(localStorage.getItem("magnolia-local")); if (l) setLocal(l); } catch {}
+    try { const l = Number(localStorage.getItem(clave("magnolia-local"))); if (l) setLocal(l); } catch {}
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
     (async () => {
       try {
@@ -246,7 +250,7 @@ export function Caja() {
     const r: Record<number, { abierto: TurnoLocal | null; ultimoDeja: number | null } | null> = {};
     await Promise.all([1, 2].map(async (l) => {
       try {
-        const x = await fetch(`/api/caja/sync?local=${l}`, { cache: "no-store" });
+        const x = await fetch(`/api/caja/sync?local=${l}${paramPrueba()}`, { cache: "no-store" });
         if (x.ok) { const d = await x.json(); r[l] = { abierto: d.abierto ?? null, ultimoDeja: d.ultimoDeja === null ? null : Number(d.ultimoDeja) }; }
         else r[l] = null;
       } catch { r[l] = null; }
@@ -268,7 +272,7 @@ export function Caja() {
       try {
         const r = await fetch("/api/caja/latido", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ terminal: idTerminal(), local_id: turno.local_id, turno_id: turno.id, pendientes: pendientesRef.current }),
+          body: JSON.stringify({ terminal: idTerminal(), local_id: turno.local_id, turno_id: turno.id, pendientes: pendientesRef.current, prueba: esPrueba() }),
         });
         if (!r.ok) return;
         const d = await r.json();
@@ -296,7 +300,7 @@ export function Caja() {
 
   const sumarseACaja = (t: TurnoLocal) => {
     setLocal(t.local_id);
-    try { localStorage.setItem("magnolia-local", String(t.local_id)); } catch {}
+    try { localStorage.setItem(clave("magnolia-local"), String(t.local_id)); } catch {}
     guardarTurno(t);
     setTurno(t);
     setAviso({ ok: true, texto: "Te sumaste a la caja abierta: las ventas de esta compu van al mismo cierre." });
@@ -305,8 +309,8 @@ export function Caja() {
 
   const abrirCaja = async (local: number, fondo: number, apertura: Apertura | null = null) => {
     setLocal(local);
-    try { localStorage.setItem("magnolia-local", String(local)); } catch {}
-    const t: TurnoLocal = { id: crypto.randomUUID(), local_id: local, terminal: idTerminal(), abierta_en: new Date().toISOString(), fondo_inicial: fondo, apertura };
+    try { localStorage.setItem(clave("magnolia-local"), String(local)); } catch {}
+    const t: TurnoLocal = { id: crypto.randomUUID(), local_id: local, terminal: idTerminal(), abierta_en: new Date().toISOString(), fondo_inicial: fondo, apertura, ...(esPrueba() ? { prueba: true } : {}) };
     await encolar({ id: t.id, clase: "turno", datos: t });
     guardarTurno(t);
     setTurno(t);
@@ -337,7 +341,7 @@ export function Caja() {
     if (limpio.length === 8 && !/[G-Z]/i.test(texto.replace(/^gc/i, "").replace(/[\s-]/g, ""))) return cargarGc(texto);
     setBuscandoGc(true); setAviso(null);
     try {
-      const r = await fetch(`/api/giftcards?nombre=${encodeURIComponent(texto)}`, { cache: "no-store" });
+      const r = await fetch(`/api/giftcards?nombre=${encodeURIComponent(texto)}${paramPrueba()}`, { cache: "no-store" });
       const d = await r.json();
       if (!r.ok) setAviso({ ok: false, texto: d.error ?? "No se pudo buscar." });
       else if (!d.resultados.length) setAviso({ ok: false, texto: `No hay gift cards con saldo a nombre de "${texto}".` });
@@ -349,7 +353,7 @@ export function Caja() {
     setGcNombres(null);
     setMedio("giftcard"); setModoGc(false); setCodigoGc(codigo.toUpperCase()); setGc(null); setBuscandoGc(true); setAviso(null);
     try {
-      const r = await fetch(`/api/giftcards?codigo=${encodeURIComponent(codigo)}`, { cache: "no-store" });
+      const r = await fetch(`/api/giftcards?codigo=${encodeURIComponent(codigo)}${paramPrueba()}`, { cache: "no-store" });
       const d = await r.json();
       if (!r.ok) setAviso({ ok: false, texto: d.error ?? "No se pudo buscar la gift card." });
       else setGc({ id: d.id, codigo: d.codigo, saldo: d.saldo, medio_origen: d.medio_origen });
@@ -463,7 +467,7 @@ export function Caja() {
     const v = { ...armarVentaGiftcard(items, gc, medioResto, local, idTerminal(), pago > 0 ? pago : null, c.id, new Date(), ext), turno_id: turno?.id ?? null };
     setCobrando(true);
     try {
-      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
+      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [{ ...v, prueba: esPrueba() }] }) });
       if (r.status === 401) { setEstado("sin-sesion"); setAviso({ ok: false, texto: "Iniciá sesión de nuevo para cobrar con gift card." }); return; }
       const d = (await r.json()) as { recibidas: string[]; rechazadas: { motivo: string }[] };
       if (!d.recibidas?.includes(v.id)) { setAviso({ ok: false, texto: `No se pudo cobrar: ${d.rechazadas?.[0]?.motivo ?? "error del servidor"}` }); return; }
@@ -478,7 +482,7 @@ export function Caja() {
   const buscarVentaCambio = async (codigo: string) => {
     setCb({ codigo, cargando: true, cant: {} });
     try {
-      const r = await fetch(`/api/ventas/cambio?codigo=${encodeURIComponent(codigo)}`, { cache: "no-store" });
+      const r = await fetch(`/api/ventas/cambio?codigo=${encodeURIComponent(codigo)}${paramPrueba()}`, { cache: "no-store" });
       const d = await r.json();
       if (!r.ok) { setCb({ codigo, cargando: false, error: d.error ?? "No se pudo buscar la venta.", cant: {} }); return; }
       setCb({ codigo, cargando: false, venta: d, cant: {} });
@@ -563,7 +567,7 @@ export function Caja() {
     const v = { ...armarVentaCambio(items, cambio, medioResto, local, idTerminal(), pago > 0 ? pago : null, c.id, idGc, new Date(), ext), turno_id: turno?.id ?? null };
     setCobrando(true);
     try {
-      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
+      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [{ ...v, prueba: esPrueba() }] }) });
       if (r.status === 401) { setEstado("sin-sesion"); setAviso({ ok: false, texto: "Iniciá sesión de nuevo para hacer el cambio." }); return; }
       const d = (await r.json()) as { recibidas: string[]; rechazadas: { motivo: string }[] };
       if (!d.recibidas?.includes(v.id)) { setAviso({ ok: false, texto: `No se pudo registrar el cambio: ${d.rechazadas?.[0]?.motivo ?? "error del servidor"}` }); return; }
@@ -595,7 +599,7 @@ export function Caja() {
   const subirVentaCuenta = async (v: VentaParaSubir): Promise<{ ok: true; saldo: number | null } | { ok: false }> => {
     setCobrando(true);
     try {
-      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [v] }) });
+      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: [{ ...v, prueba: esPrueba() }] }) });
       if (r.status === 401) { setEstado("sin-sesion"); setAviso({ ok: false, texto: "Iniciá sesión de nuevo." }); return { ok: false }; }
       const d = (await r.json()) as { recibidas: string[]; rechazadas: { motivo: string }[] };
       if (!d.recibidas?.includes(v.id)) { setAviso({ ok: false, texto: `No se pudo anotar en la cuenta: ${d.rechazadas?.[0]?.motivo ?? "error del servidor"}` }); return { ok: false }; }
@@ -692,7 +696,8 @@ export function Caja() {
     const difAp = esperadoAp !== null ? Math.round((contadoAp - esperadoAp) * 100) / 100 : null;
     return (
       <main className="mx-auto mt-12 max-w-lg px-6 pb-10">
-        <h1 className="text-2xl font-semibold">Abrir caja</h1>
+        <h1 className="text-2xl font-semibold">{enPrueba ? "Abrir caja de prueba" : "Abrir caja"}</h1>
+        {enPrueba && <p className="mt-3 rounded-xl bg-orange-50 px-3 py-2 text-sm text-orange-900">Lo que hagas acá no descuenta stock ni aparece en ventas, reportes ni cierres. Elegí el local para usar sus precios y productos. Al terminar, cerrala y borrá los datos desde Configuración → Caja de prueba.</p>}
         {aviso && !aviso.ok && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">{aviso.texto}</p>}
         {buscandoTurno ? <p className="mt-4 text-suave">Un momento…</p> : (
           <>
@@ -796,7 +801,7 @@ export function Caja() {
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
         </Link>
         <div className="mr-auto leading-tight">
-          <p className="font-semibold text-marca">{nombreLocal}</p>
+          <p className="font-semibold text-marca">{enPrueba && <span className="mr-2 rounded bg-orange-500 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white">Caja de prueba</span>}{nombreLocal}</p>
           <p className="hidden text-xs text-suave sm:block">Caja abierta desde las {new Date(turno.abierta_en).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
             {" · "}{catalogo ? `${catalogo.productos.length.toLocaleString("es-AR")} productos${catalogo.guardado ? ` (act. ${new Date(catalogo.guardado).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })})` : ""}` : "sin catálogo"}</p>
         </div>

@@ -888,3 +888,13 @@ export async function marcarPedidoEntregado(id: number): Promise<Mensaje> {
     return ok ? { ok: true, texto: "Pedido marcado como entregado." } : { ok: false, texto: "Ese pedido ya estaba entregado o cancelado." };
   } catch (e) { return { ok: false, texto: (e as Error).message }; }
 }
+
+/** Borra todo lo de las cajas de prueba cerradas (ventas, gift cards, pagos de cuentas, retiros). */
+export async function borrarCajasPrueba(): Promise<Mensaje> {
+  await soloDuenio();
+  const { data, error } = await clienteServidor().rpc("borrar_cajas_prueba");
+  if (error) return { ok: false, texto: /borrar_cajas_prueba/.test(error.message) ? "Falta correr la migración 0030_caja_prueba.sql en Supabase." : error.message };
+  revalidatePath("/configuracion/caja-prueba");
+  const r = data as { cajas: number; ventas: number; giftcards: number };
+  return { ok: true, texto: r.cajas || r.ventas ? `Listo: se borraron ${r.cajas} caja(s), ${r.ventas} venta(s) y ${r.giftcards} gift card(s) de prueba.` : "No había nada de prueba para borrar (las cajas abiertas no se borran)." };
+}

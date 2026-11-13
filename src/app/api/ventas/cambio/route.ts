@@ -7,13 +7,15 @@ import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
 export async function GET(req: Request) {
   const u = await usuarioDeLaSesion();
   if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
-  const texto = new URL(req.url).searchParams.get("codigo") ?? "";
+  const sp = new URL(req.url).searchParams;
+  const texto = sp.get("codigo") ?? "";
+  const prueba = sp.get("prueba") === "1"; // en la caja de prueba solo se cambian ventas de prueba, y al revés
   const rango = rangoCodigo(texto);
   if (!rango) return NextResponse.json({ error: "El código del ticket tiene 8 letras y números (está abajo del código de barras)." }, { status: 400 });
   const db = clienteServidor();
   const { data: ventas, error } = await db.from("ventas")
     .select("*, venta_items(n, producto_id, barcode, sku, nombre, cantidad, precio_unitario, total)")
-    .gte("id", rango[0]).lte("id", rango[1]).limit(1);
+    .gte("id", rango[0]).lte("id", rango[1]).eq("prueba", prueba).limit(1);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const v = ventas?.[0];
   if (!v) return NextResponse.json({ error: `No encontré ninguna venta con el código ${texto.trim().toUpperCase()}.` }, { status: 404 });

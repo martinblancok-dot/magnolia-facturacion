@@ -8,7 +8,7 @@ import { pedidosParaCaja } from "@/lib/tiendanube-pedidos";
 export async function POST(req: Request) {
   const u = await usuarioDeLaSesion();
   if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
-  const b = (await req.json().catch(() => null)) as { terminal?: string; local_id?: number; turno_id?: string | null; pendientes?: number } | null;
+  const b = (await req.json().catch(() => null)) as { terminal?: string; local_id?: number; turno_id?: string | null; pendientes?: number; prueba?: boolean } | null;
   const terminal = String(b?.terminal ?? "").slice(0, 60);
   const turno = /^[0-9a-f-]{36}$/i.test(String(b?.turno_id)) ? String(b!.turno_id) : null;
   if (!terminal) return NextResponse.json({ error: "falta la compu" }, { status: 400 });
@@ -24,6 +24,6 @@ export async function POST(req: Request) {
   }
   // Pedidos de la tienda online que tiene que preparar o entregar este local
   const local = Number(b?.local_id);
-  const pedidosWeb = [1, 2].includes(local) ? await pedidosParaCaja(db, local) : [];
+  const pedidosWeb = [1, 2].includes(local) && !b?.prueba ? await pedidosParaCaja(db, local) : []; // la caja de prueba no ve pedidos reales
   return NextResponse.json({ turno: estado, pedidosWeb });
 }

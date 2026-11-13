@@ -1,5 +1,6 @@
 // Sube a internet lo que la caja tiene guardado: primero aperturas y retiros, después las ventas.
 import { borrarVenta, outbox, sacarDeOutbox, ventasPendientes } from "./caja-local";
+import { clave, esPrueba } from "./modo-prueba";
 
 export type EstadoSync = "conectado" | "sin-conexion" | "sin-sesion";
 
@@ -29,7 +30,7 @@ async function subirUnaVez(): Promise<ResultadoSync> {
     }
     const ventas = await ventasPendientes();
     if (ventas.length) {
-      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas }) });
+      const r = await fetch("/api/ventas", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ventas: ventas.map((v) => ({ ...v, prueba: esPrueba() })) }) });
       if (r.status === 401) return { estado: "sin-sesion", pendientes: ventas.length, rechazos };
       if (!r.ok) throw new Error();
       const d = (await r.json()) as { recibidas: string[]; rechazadas: { id: string; motivo: string }[] };
@@ -51,18 +52,18 @@ export function subirTodo(): Promise<ResultadoSync> {
 }
 
 // Turno abierto en esta compu (localStorage)
-const CLAVE_TURNO = "magnolia-turno";
+const CLAVE_TURNO = () => clave("magnolia-turno");
 export function turnoGuardado(local: number): import("./caja-local").TurnoLocal | null {
   try {
-    const t = JSON.parse(localStorage.getItem(CLAVE_TURNO) ?? "null");
+    const t = JSON.parse(localStorage.getItem(CLAVE_TURNO()) ?? "null");
     return t && t.local_id === local ? t : null;
   } catch { return null; }
 }
 export function guardarTurno(t: import("./caja-local").TurnoLocal | null) {
-  try { if (t) localStorage.setItem(CLAVE_TURNO, JSON.stringify(t)); else localStorage.removeItem(CLAVE_TURNO); } catch {}
+  try { if (t) localStorage.setItem(CLAVE_TURNO(), JSON.stringify(t)); else localStorage.removeItem(CLAVE_TURNO()); } catch {}
 }
 
 /** El turno guardado en esta compu, sea del local que sea. */
 export function turnoDeEstaCompu(): import("./caja-local").TurnoLocal | null {
-  try { return JSON.parse(localStorage.getItem(CLAVE_TURNO) ?? "null"); } catch { return null; }
+  try { return JSON.parse(localStorage.getItem(CLAVE_TURNO()) ?? "null"); } catch { return null; }
 }
