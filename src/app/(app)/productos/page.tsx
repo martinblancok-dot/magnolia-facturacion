@@ -1,6 +1,8 @@
 import { claveCodigo } from "@/lib/caja";
 import Link from "next/link";
 import { ImportarCatalogo } from "./importar";
+import { Miniatura } from "../../miniatura";
+import { rutaCorta } from "@/lib/fotos";
 import { adminDesbloqueado } from "@/lib/admin";
 import { pesos } from "@/lib/formato";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -13,7 +15,7 @@ export default async function Productos({ searchParams }: { searchParams: Promis
   const q = ((await searchParams).q ?? "").trim();
   const { count } = await db.from("productos").select("id", { count: "exact", head: true }).eq("activo", true);
   let consulta = db.from("productos")
-    .select("id, barcode, sku, nombre, categoria, precio_lista, precio_efectivo, stock(local_id, cantidad)")
+    .select("id, barcode, sku, nombre, categoria, precio_lista, precio_efectivo, imagen_url, stock(local_id, cantidad)")
     .eq("activo", true).order("nombre").limit(80);
   if (q) {
     const limpio = q.replace(/[%,()*"\\]/g, " ").trim();
@@ -35,6 +37,7 @@ export default async function Productos({ searchParams }: { searchParams: Promis
         </div>
         {admin && (
           <div className="flex items-center gap-3">
+            <Link href="/productos/fotos" className="boton-borde">Fotos</Link>
             <Link href="/promos" className="boton-borde">Promociones</Link>
             <Link href="/productos/nuevo" className="boton">+ Nuevo producto</Link>
           </div>
@@ -56,9 +59,12 @@ export default async function Productos({ searchParams }: { searchParams: Promis
             {(productos ?? []).map((p) => {
               const fila = (
                 <>
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium">{p.nombre}</span>
-                    <span className="text-sm text-suave">{p.sku} · {p.categoria ?? "Sin categoría"}</span>
+                  <span className="flex min-w-0 items-center gap-3">
+                    <Miniatura ruta={rutaCorta(p.imagen_url)} tam={48} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">{p.nombre}</span>
+                      <span className="text-sm text-suave">{p.sku} · {p.categoria ?? "Sin categoría"}</span>
+                    </span>
                   </span>
                   <span className="text-right text-sm">
                     <span className="block font-semibold">{pesos(Number(p.precio_lista))} <span className="font-normal text-suave">lista</span></span>

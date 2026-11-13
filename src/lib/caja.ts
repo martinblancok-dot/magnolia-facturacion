@@ -28,8 +28,8 @@ export const conDiez = (lista: number) => Math.round((lista * 0.9) / 50) * 50;
 
 /** Producto tal como viaja a la caja: [id, barcode, sku, nombre, lista, efectivo, categoria] */
 /** [id, barcode, sku, nombre, lista, efectivo, categoria, proveedor] */
-/** [id, código interno, sku, nombre, lista, efectivo, categoría, proveedor, códigos alternativos] */
-export type ProductoCaja = [string, string, string, string, number, number, string | null, (string | null)?, string[]?];
+/** [id, código interno, sku, nombre, lista, efectivo, categoría, proveedor, códigos alternativos, foto (final de la dirección)] */
+export type ProductoCaja = [string, string, string, string, number, number, string | null, (string | null)?, string[]?, (string | null)?];
 
 /** Forma de comparar códigos de barras: sin espacios, mayúsculas y, si es solo números, sin ceros adelante. */
 export function claveCodigo(c: string): string {
