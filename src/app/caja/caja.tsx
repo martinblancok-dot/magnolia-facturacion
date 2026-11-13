@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PedidosWeb } from "./pedidos-web";
+import { Miniatura } from "../miniatura";
 import { clave, esPrueba, paramPrueba } from "@/lib/modo-prueba";
 import type { PedidoCaja } from "@/lib/tiendanube-pedidos";
 import {
@@ -925,7 +926,7 @@ export function Caja() {
                 {resultado.resultados.map((p, i) => (
                   <li key={p[0]}>
                     <button ref={i === marcado ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined} onClick={() => sumar(p)} onMouseEnter={() => setMarcado(i)} className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left ${i === marcado ? "bg-marca-claro" : ""}`}>
-                      <span className="min-w-0"><span className="block truncate font-medium">{p[3]}</span><span className="text-xs text-suave">{p[2]}</span></span>
+                      <span className="flex min-w-0 items-center gap-3"><Miniatura ruta={p[9]} tam={44} /><span className="min-w-0"><span className="block truncate font-medium">{p[3]}</span><span className="text-xs text-suave">{p[2]}</span></span></span>
                       <span className="text-right text-sm whitespace-nowrap"><b>{pesos(p[5])}</b><span className="block text-xs text-suave">lista {pesos(p[4])}</span></span>
                     </button>
                   </li>
