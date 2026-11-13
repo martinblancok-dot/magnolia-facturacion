@@ -103,3 +103,19 @@ describe("reportes y tienda", () => {
     expect(plan.cambios.map((v) => [v.id, v.stockOnline])).toEqual([["b", 1], ["a", 4], ["c", 0]]);
   });
 });
+
+describe("planilla real: BR9116, ZA5977 y PL304189", () => {
+  it("la columna Colores se encuentra por el título en cualquier pestaña (no por posición)", () => {
+    const r = leerHojas([
+      { sheet: "Borlas", data: [["Proveedor", "Articulo Interno", "Producto", "Precio unitario", "Precio sugerido", "precio descuento", "Barcode", "Categoria", "Otra", "Colores"],
+        ["Borlas", "BR9116", "Compotera labrada", 1000, 2000, 1700, "2170000091167", "Mesa", "", "Ámbar, Transparente rayada, Transparente tallada"]] },
+      { sheet: "Zakka Deco", data: [["Colores", "Barcode", "Producto", "Articulo", "Precio sugerido"],
+        ["Transparente, Rosa tornasolado, Azul tornasolado, Aqua tornasolado", "2100000059777", "Botella corcho", "ZA5977", 3000]] },
+    ]);
+    const br = r.productos.find((p) => p.sku === "BR9116")!;
+    expect(br.colores).toEqual(["Ámbar", "Transparente rayada", "Transparente tallada"]);
+    expect(planVariantes(br.sku, br.colores!, []).crear.map((c) => c.sku_variante)).toEqual(["BR9116-AMB", "BR9116-TRA", "BR9116-TRA2"]);
+    expect(r.productos.find((p) => p.sku === "ZA5977")!.colores).toHaveLength(4);
+  });
+});
+

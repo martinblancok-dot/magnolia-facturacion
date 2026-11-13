@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { descartarCambioPlanilla, reintentarCambioPlanilla } from "../../../acciones";
+import { descartarCambioPlanilla, pedirColoresPlanilla, reintentarCambioPlanilla } from "../../../acciones";
 import { BotonAccion } from "../../../componentes";
 import { SCRIPT_PLANILLA } from "@/lib/planilla-script";
 import { clienteServidor } from "@/lib/supabase/almacen";
@@ -19,6 +19,16 @@ export default async function PlanillaConfig() {
     db.from("planilla_cambios").select("id, tipo, barcode, hoja, datos, creado_en, error").not("error", "is", null).is("aplicado_en", null).order("id", { ascending: false }).limit(20),
     db.from("ajustes").select("valor").eq("clave", "respaldo_ultimo").maybeSingle(),
   ]);
+  // Lo que hay en el sistema: productos con colores (activos)
+  const { data: varDb, error: errVar } = await db.from("producto_variantes").select("color, sku_variante, orden, productos(sku, nombre, hoja)").eq("activo", true).order("orden").limit(3000);
+  const conColores = new Map<string, { sku: string; nombre: string; hoja: string | null; colores: string[] }>();
+  for (const v of (varDb ?? []) as unknown as { color: string; productos: { sku: string; nombre: string; hoja: string | null } | null }[]) {
+    const p = v.productos;
+    if (!p) continue;
+    const f = conColores.get(p.sku) ?? { sku: p.sku, nombre: p.nombre, hoja: p.hoja, colores: [] };
+    f.colores.push(v.color);
+    conColores.set(p.sku, f);
+  }
   let respaldo: { cuando: string; archivo: string; filas: number; error: string | null } | null = null;
   try { respaldo = resp?.valor ? JSON.parse(resp.valor) : null; } catch {}
   const diasRespaldo = respaldo ? Math.floor((Date.now() - Date.parse(respaldo.cuando)) / 86400_000) : null;
@@ -75,6 +85,7 @@ export default async function PlanillaConfig() {
                 )}
               </div>
             )}
+            {estado.colores?.sinProducto?.length ? <p className="text-sm text-amber-800">Con colores en la planilla pero sin producto en el sistema: {estado.colores.sinProducto.join(", ")}</p> : null}
             {estado.colores && (
               estado.colores.error ? <p className="text-sm text-red-700">Colores: {estado.colores.error}</p> : (
                 <p className="text-sm text-suave">Colores (columna &quot;Colores&quot;): {estado.colores.productos} productos con colores
@@ -82,6 +93,28 @@ export default async function PlanillaConfig() {
               )
             )}
           </>
+        )}
+      </section>
+
+      <section id="colores" className="tarjeta space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Colores</h2>
+            <p className="text-sm text-suave">Se leen de la columna <b>Colores</b> (fila 1) de todas las pestañas de proveedores.{estado?.colores?.cuando ? ` Última actualización: ${fechaHora(estado.colores.cuando)}.` : ""}</p>
+          </div>
+          <BotonAccion accion={pedirColoresPlanilla} texto="Actualizar colores desde la planilla" />
+        </div>
+        {errVar ? <p className="text-sm text-red-700">Falta correr la migración 0032_variantes_color.sql.</p> : conColores.size === 0 ? (
+          <p className="text-sm text-amber-800">Todavía no hay ningún producto con colores en el sistema.</p>
+        ) : (
+          <details className="text-sm">
+            <summary className="cursor-pointer">{conColores.size} productos con colores en el sistema</summary>
+            <ul className="mt-2 space-y-0.5">
+              {[...conColores.values()].sort((a, b) => a.sku.localeCompare(b.sku)).map((p) => (
+                <li key={p.sku}><b>{p.sku}</b> <span className="text-suave">({p.hoja ?? "—"})</span>: {p.colores.join(", ")}</li>
+              ))}
+            </ul>
+          </details>
         )}
       </section>
 

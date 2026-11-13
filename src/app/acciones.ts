@@ -898,3 +898,13 @@ export async function borrarCajasPrueba(): Promise<Mensaje> {
   const r = data as { cajas: number; ventas: number; giftcards: number };
   return { ok: true, texto: r.cajas || r.ventas ? `Listo: se borraron ${r.cajas} caja(s), ${r.ventas} venta(s) y ${r.giftcards} gift card(s) de prueba.` : "No había nada de prueba para borrar (las cajas abiertas no se borran)." };
 }
+
+// ---------- Colores desde la planilla ----------
+
+/** Botón "Actualizar colores desde la planilla": la planilla lo ve en menos de un minuto y manda la columna Colores. */
+export async function pedirColoresPlanilla(): Promise<Mensaje> {
+  await soloDuenio();
+  const { error } = await clienteServidor().from("ajustes").upsert({ clave: "planilla_pedido_colores", valor: new Date().toISOString(), actualizado_en: new Date().toISOString() });
+  if (error) return { ok: false, texto: error.message };
+  return { ok: true, texto: "Pedido enviado: la planilla actualiza los colores en menos de un minuto. Refrescá esta página para ver el resultado. (Si no pasa nada, en la planilla usá Magnolia → Actualizar colores ahora: la primera vez activa este botón.)" };
+}
