@@ -26,7 +26,7 @@ export default async function FotosProductos() {
         <ul className="list-disc space-y-1 pl-5 text-suave">
           <li>Usa solo la foto del producto solo: la que termina en <code>-1.jpg</code> (ej. <code>EC8651-botella-verde-rayada-1.jpg</code>). Las <code>-2-ambiente</code> se saltean.</li>
           <li>El producto es el SKU con que empieza el nombre; si hay dos posibles, gana el más largo (<code>EC9864-2-vaso…</code> va a EC9864-2). Si el SKU tiene barra, en el nombre va con guion.</li>
-          <li>Si un producto tiene varias fotos <code>-1</code>, la primera en orden alfabético es la principal, y cada una se guarda en su color si el nombre dice el color tal como está en la columna Colores (ej. <code>ZA5977-vaso-rosa-1.jpg</code> → Rosa).</li>
+          <li>Si un producto tiene varias fotos <code>-1</code>, la primera en orden alfabético es la principal, y cada una se guarda en su color si alguna palabra del nombre coincide con el color (sin importar mayúsculas ni tildes): <code>ZA5977-botella-corcho-rosa-1.jpg</code> → Rosa tornasolado, <code>BR9116-compotera-labrada-rayada-1.jpg</code> → Transparente rayada. Si coincide con dos colores, gana el de más palabras.</li>
           <li>Se achican solas a 300×300 (recorte al centro). Si ya había foto, se reemplaza.</li>
         </ul>
       </div>

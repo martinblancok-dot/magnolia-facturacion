@@ -126,6 +126,36 @@ export function SubirFotos() {
         </p>
       )}
 
+      {!trabajando && filas.some((f) => f.plan?.productos[0]?.colores.length) && (() => {
+        const conColor = filas.filter((f) => f.estado === "ok" && f.color);
+        const sinColor = filas.filter((f) => f.estado === "sin_color" || (f.estado === "ok" && !f.color && f.plan?.sinColor));
+        return (
+          <div className="tarjeta space-y-3 text-sm">
+            <h2 className="font-semibold">Resumen de colores</h2>
+            {conColor.length > 0 && (
+              <div>
+                <p className="font-semibold text-green-800">Quedaron en su color ({conColor.length})</p>
+                <ul className="mt-1 space-y-0.5">
+                  {conColor.map((f, i) => <li key={i}><span className="text-suave">{f.archivo.split("/").pop()}</span> → <b>{f.producto?.sku} · {f.color}</b>{f.principal ? " (y foto principal)" : ""}</li>)}
+                </ul>
+              </div>
+            )}
+            {sinColor.length > 0 && (
+              <div>
+                <p className="font-semibold text-amber-800">No encontraron color ({sinColor.length})</p>
+                <ul className="mt-1 space-y-0.5">
+                  {sinColor.map((f, i) => (
+                    <li key={i}><span className="text-suave">{f.archivo.split("/").pop()}</span> — colores de {f.producto?.sku}: {f.plan?.productos[0]?.colores.map((c) => c.color).join(", ")}
+                      {f.estado === "ok" ? " (se cargó solo como foto principal)" : " (no se subió)"}</li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-suave">Revisá que el nombre del archivo tenga alguna palabra del color, o agregá el color en la columna Colores de la planilla.</p>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <ul className="divide-y divide-linea rounded-2xl border border-linea bg-white">
         {filas.map((f, i) => ({ f, i })).sort((a, b) => orden.indexOf(a.f.estado) - orden.indexOf(b.f.estado)).map(({ f, i }) => (
           <li key={i} className="px-4 py-3 text-sm">
