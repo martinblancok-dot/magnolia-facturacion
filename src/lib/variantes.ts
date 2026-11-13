@@ -54,5 +54,6 @@ export function planVariantes(sku: string, colores: string[], existentes: Varian
   return { crear, reactivar, desactivar, orden };
 }
 
-/** Colores de cada producto en la caja: producto_id → [[variante_id, color], …] (solo los activos, en orden). */
-export type VariantesCaja = Record<string, [string, string][]>;
+/** Colores de cada producto en la caja: producto_id → [[variante_id, color, foto?], …] (solo los activos, en orden). */
+export type ColorCaja = [string, string] | [string, string, string];
+export type VariantesCaja = Record<string, ColorCaja[]>;

@@ -1,3 +1,4 @@
+import type { ColorCaja } from "./variantes";
 import { descuentosPromo, montoDescuentoManual, type DescuentoManual, type LineaDescuento, type Promo, type UnidadPromo } from "./promos";
 // Lógica de la caja (se usa en el navegador y en el servidor).
 
@@ -152,7 +153,7 @@ export function buscar(catalogo: ProductoCaja[], texto: string, max = 30): { exa
   return { exacto, resultados };
 }
 
-export function agregar(items: ItemCarrito[], p: ProductoCaja, cantidad = 1, variante?: [string, string] | null): ItemCarrito[] {
+export function agregar(items: ItemCarrito[], p: ProductoCaja, cantidad = 1, variante?: ColorCaja | null): ItemCarrito[] {
   const vid = variante?.[0] ?? null;
   const i = items.findIndex((x) => x.producto_id === p[0] && (x.variante_id ?? null) === vid);
   if (i >= 0) return items.map((x, j) => (j === i ? { ...x, cantidad: x.cantidad + cantidad } : x));

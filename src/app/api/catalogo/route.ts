@@ -60,12 +60,20 @@ export async function GET(req: Request) {
   }
   // Colores de cada producto (si todavía no está la migración 0032, no hay)
   const variantes: VariantesCaja = {};
+  let colsColor = "id, producto_id, color, orden, imagen_url";
   for (let i = 0; ; i += 1000) {
-    const { data, error } = await db.from("producto_variantes").select("id, producto_id, color, orden").eq("activo", true)
-      .order("producto_id").order("orden").order("color").range(i, i + 999);
-    if (error) break;
-    for (const v of data ?? []) (variantes[v.producto_id] ??= []).push([v.id, v.color]);
-    if (!data || data.length < 1000) break;
+    let r = await db.from("producto_variantes").select(colsColor).eq("activo", true).order("producto_id").order("orden").order("color").range(i, i + 999);
+    if (r.error && /imagen_url/.test(r.error.message)) { // sin la migración 0033 (fotos por color)
+      colsColor = "id, producto_id, color, orden";
+      r = await db.from("producto_variantes").select(colsColor).eq("activo", true).order("producto_id").order("orden").order("color").range(i, i + 999);
+    }
+    if (r.error) break;
+    const data = (r.data ?? []) as unknown as { id: string; producto_id: string; color: string; imagen_url?: string | null }[];
+    for (const v of data) {
+      const foto = rutaCorta(v.imagen_url);
+      (variantes[v.producto_id] ??= []).push(foto ? [v.id, v.color, foto] : [v.id, v.color]);
+    }
+    if (data.length < 1000) break;
   }
   const { data: locales } = await db.from("locales").select("id, nombre").order("id");
   return NextResponse.json({ version, productos, variantes, promos, locales: locales ?? [], usuario: u.email });

@@ -6,7 +6,7 @@ import { buscar, porCodigo, type ProductoCaja } from "@/lib/caja";
 import { BotonCamara, EscanerCamara } from "@/app/escaner";
 import { guardar, leer } from "@/lib/caja-local";
 import { ElegirColor } from "@/app/elegir-color";
-import type { VariantesCaja } from "@/lib/variantes";
+import type { ColorCaja, VariantesCaja } from "@/lib/variantes";
 
 type Modo = "ingreso" | "conteo" | "transferencia";
 interface Linea { id: string; sku: string; nombre: string; cantidad: number; variante_id?: string | null; color?: string | null }
@@ -105,7 +105,7 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
     return { ok: true, texto: p[3] };
   };
 
-  const sumar = (p: ProductoCaja, n = cantidadPedida, variante?: [string, string]) => {
+  const sumar = (p: ProductoCaja, n = cantidadPedida, variante?: ColorCaja) => {
     // Producto con colores: se pide el color (las cantidades van por color)
     if (variantes[p[0]]?.length && !variante) { setEligiendo({ p, n }); setBusqueda(""); return; }
     setEligiendo(null);
@@ -169,7 +169,7 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
   return (
     <div className="space-y-5">
       {eligiendo && variantes[eligiendo.p[0]] && (
-        <ElegirColor nombre={eligiendo.p[3]} colores={variantes[eligiendo.p[0]]} cantidad={eligiendo.n}
+        <ElegirColor nombre={eligiendo.p[3]} colores={variantes[eligiendo.p[0]]} cantidad={eligiendo.n} fotoProducto={eligiendo.p[9] ?? null}
           onElegir={(v) => sumar(eligiendo.p, eligiendo.n, v)} onCancelar={() => { setEligiendo(null); entrada.current?.focus(); }} />
       )}
       <div className="flex flex-wrap items-end justify-between gap-3">
