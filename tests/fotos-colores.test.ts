@@ -91,4 +91,11 @@ describe("fotos desde la carpeta FINALES", () => {
       [prod("z", "ZA5977", ["Rosa tornasolado", "Aqua tornasolado"])]);
     expect(plan.map((p) => p.color?.color)).toEqual(["Aqua tornasolado", "Rosa tornasolado"]);
   });
+
+  it("primero gana el color que aparece completo en el nombre", () => {
+    const pl = [{ color: "Flores verdes" }, { color: "Margaritas" }];
+    expect(colorDeArchivo("botella-flores-margaritas", pl)?.color).toBe("Margaritas");
+    expect(colorDeArchivo("botella-flores-verdes", pl)?.color).toBe("Flores verdes");
+    expect(colorDeArchivo("botella-flores", pl)?.color).toBe("Flores verdes");
+  });
 });

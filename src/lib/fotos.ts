@@ -67,19 +67,21 @@ const palabras = (s: string) => plano(s).split("-").filter(Boolean);
  * Vale si palabras seguidas del archivo coinciden con palabras seguidas del color, por ejemplo:
  *   "rosa" → "Rosa tornasolado" (comienzo del color), "flores-verdes" → "Flores verdes" (el color entero),
  *   "rayada" → "Transparente rayada" (una palabra del color).
- * Puntaje: más palabras coincidentes gana; a igual cantidad, gana si coincide con el comienzo del color
- * y después si cubre el color entero.
+ * Puntaje: primero gana el color que aparece COMPLETO en el nombre (todas sus palabras, en orden):
+ *   "botella-flores-margaritas" → "Margaritas" (completo) le gana a "Flores verdes" (falta "verdes").
+ * Después, más palabras coincidentes; a igualdad, el que coincide con el comienzo del color.
  */
 export function puntajeColor(restoArchivo: string, color: string): number {
   const a = palabras(restoArchivo), c = palabras(color);
   if (!a.length || !c.length) return 0;
   let mejor = 0;
+  const completo = `-${a.join("-")}-`.includes(`-${c.join("-")}-`);
   for (let i = 0; i < a.length; i++) {
     for (let j = 0; j < c.length; j++) {
       let n = 0;
       while (i + n < a.length && j + n < c.length && a[i + n] === c[j + n]) n++;
       if (!n) continue;
-      const p = n * 100 + (j === 0 ? 10 : 0) + (j === 0 && n === c.length ? 5 : 0);
+      const p = (completo ? 10_000 : 0) + n * 100 + (j === 0 ? 10 : 0);
       if (p > mejor) mejor = p;
     }
   }
@@ -126,4 +128,79 @@ export function planFotos(archivos: string[], productos: ProductoIndice[]): { pl
     plan.push({ archivo: l.archivo, estado: "ok", productos: [p], principal, color, sinColor: !color && p.colores.length > 0 });
   }
   return { plan, ignoradas };
+}
+
+// ---------- Importar miniaturas ya hechas (carpeta FINALES/miniaturas + _variantes-colores.csv) ----------
+// Columnas del CSV: foto_producto, sku_base, color, sufijo, sku_variante, miniatura, principal_del_grupo.
+// Sin sufijo → foto del producto. Con sufijo → foto del color (y también del producto si principal_del_grupo = "si").
+
+export type FilaCsvFotos = { sku_base: string; color: string; sufijo: string; sku_variante: string; miniatura: string; principal: boolean };
+export type Importacion = {
+  fila: FilaCsvFotos;
+  estado: "listo" | "sku_no_encontrado" | "sku_repetido" | "sin_archivo" | "color_no_encontrado";
+  producto?: ProductoIndice;
+  color?: { id: string; color: string; sku_variante: string } | null;
+  principal: boolean;   // va como foto del producto
+};
+
+/** Lee un CSV simple (con comillas opcionales). */
+export function leerCsv(texto: string): string[][] {
+  const filas: string[][] = [];
+  let fila: string[] = [], campo = "", comillas = false;
+  const t = texto.replace(/^﻿/, "");
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (comillas) {
+      if (ch === '"' && t[i + 1] === '"') { campo += '"'; i++; }
+      else if (ch === '"') comillas = false;
+      else campo += ch;
+    } else if (ch === '"') comillas = true;
+    else if (ch === "," || ch === ";") { fila.push(campo); campo = ""; }
+    else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && t[i + 1] === "\n") i++;
+      fila.push(campo); campo = "";
+      if (fila.some((c) => c.trim())) filas.push(fila);
+      fila = [];
+    } else campo += ch;
+  }
+  fila.push(campo);
+  if (fila.some((c) => c.trim())) filas.push(fila);
+  return filas;
+}
+
+export function leerCsvFotos(texto: string): FilaCsvFotos[] {
+  const [titulos, ...resto] = leerCsv(texto);
+  if (!titulos) return [];
+  const col = (n: string) => titulos.findIndex((t) => t.trim().toLowerCase() === n);
+  const c = { sku: col("sku_base"), color: col("color"), sufijo: col("sufijo"), skuVar: col("sku_variante"), mini: col("miniatura"), principal: col("principal_del_grupo") };
+  if (c.sku < 0 || c.mini < 0) throw new Error("El CSV no tiene las columnas sku_base y miniatura.");
+  const v = (f: string[], i: number) => (i >= 0 ? (f[i] ?? "").trim() : "");
+  return resto.map((f) => ({
+    sku_base: v(f, c.sku), color: v(f, c.color), sufijo: v(f, c.sufijo), sku_variante: v(f, c.skuVar), miniatura: v(f, c.mini),
+    principal: /^(si|sí|s|yes|1|true)$/i.test(v(f, c.principal)),
+  })).filter((f) => f.sku_base && f.miniatura);
+}
+
+export function planImportacion(filas: FilaCsvFotos[], archivos: string[], productos: ProductoIndice[]): Importacion[] {
+  const hay = new Set(archivos.map((a) => (a.split(/[\\/]/).pop() ?? "").toLowerCase()));
+  const porSku = new Map<string, ProductoIndice[]>();
+  for (const p of productos) {
+    const k = skuPlano(p.sku || p.barcode);
+    if (k) porSku.set(k, [...(porSku.get(k) ?? []), p]);
+  }
+  return filas.map((fila): Importacion => {
+    const conColor = !!fila.sufijo;
+    const principal = !conColor || fila.principal;
+    if (!hay.has(fila.miniatura.toLowerCase())) return { fila, estado: "sin_archivo", principal };
+    const lista = porSku.get(skuPlano(fila.sku_base)) ?? [];
+    if (!lista.length) return { fila, estado: "sku_no_encontrado", principal };
+    if (lista.length > 1) return { fila, estado: "sku_repetido", principal };
+    const producto = lista[0];
+    if (!conColor) return { fila, estado: "listo", producto, color: null, principal };
+    // El color: por el nombre (sin importar mayúsculas ni tildes); si no, por su código interno
+    const color = producto.colores.find((c) => plano(c.color) === plano(fila.color))
+      ?? producto.colores.find((c) => skuPlano(c.sku_variante) === skuPlano(fila.sku_variante)) ?? null;
+    if (!color) return { fila, estado: principal ? "listo" : "color_no_encontrado", producto, color: null, principal };
+    return { fila, estado: "listo", producto, color, principal };
+  });
 }
