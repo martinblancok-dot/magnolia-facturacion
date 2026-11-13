@@ -68,13 +68,13 @@ async function traerVentas(db: ReturnType<typeof clienteServidor>, desde: string
 /** Pedidos pagados de la tienda online como si fueran ventas (local 0 = Tienda online). */
 async function traerPedidosWeb(db: ReturnType<typeof clienteServidor>, desde: string, hasta: string) {
   const { data, error } = await db.from("pedidos_web")
-    .select("id, creado_en, total, costo_envio, pedidos_web_items(producto_id, sku, nombre, cantidad, precio)")
+    .select("id, creado_en, total, costo_envio, pedidos_web_items(*)")
     .in("estado", ["a_preparar", "preparado", "entregado"])
     .gte("creado_en", `${desde}T00:00:00-03:00`).lt("creado_en", `${sumarDias(hasta, 1)}T00:00:00-03:00`).limit(5000);
   if (error) return []; // todavía sin la migración 0028
   return (data ?? []).map((p): VentaRep => {
-    const items = ((p.pedidos_web_items ?? []) as { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; precio: number }[])
-      .map((i) => ({ producto_id: i.producto_id, sku: i.sku, nombre: i.nombre, cantidad: Number(i.cantidad), total: Number(i.cantidad) * Number(i.precio) }));
+    const items = ((p.pedidos_web_items ?? []) as { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; precio: number; color?: string | null }[])
+      .map((i) => ({ producto_id: i.producto_id, sku: i.sku, nombre: i.nombre, cantidad: Number(i.cantidad), total: Number(i.cantidad) * Number(i.precio), color: i.color ?? null } as VentaRep["items"][number]));
     const cobrado = Math.max(0, Number(p.total) - Number(p.costo_envio ?? 0)); // lo de productos, sin el envío
     const lista = items.reduce((s, i) => s + i.total, 0);
     // El descuento por transferencia (y cupones) se reparte entre los productos, como en la caja
@@ -224,7 +224,10 @@ export default async function Reportes({ searchParams }: { searchParams: Promise
             {r.masVendidos.map((f, i) => (
               <tr key={f.clave}>
                 <td className="py-1.5 text-suave">{i + 1}</td>
-                <td className="py-1.5">{f.nombre}<span className="ml-1 text-xs text-suave">{f.sku}</span></td>
+                <td className="py-1.5">{f.nombre}<span className="ml-1 text-xs text-suave">{f.sku}</span>
+                  {Object.keys(f.colores).length > 0 && (
+                    <span className="block text-xs text-suave">{Object.entries(f.colores).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}: ${n}`).join(" · ")}</span>
+                  )}</td>
                 <td className="py-1.5 text-right tabular-nums">{f.unidades}</td>
                 <td className="py-1.5 text-right tabular-nums">{pesos(f.ingreso).replace(",00", "")}</td>
                 <td className="py-1.5 text-right tabular-nums">{f.ingreso - f.sinCosto > 0 ? pesos(f.ingreso - f.sinCosto - f.costo).replace(",00", "") : "—"}</td>

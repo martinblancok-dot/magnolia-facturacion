@@ -14,7 +14,10 @@ export async function GET() {
   for (const m of data ?? []) {
     const clave = `${m.local_id}|${m.nota ?? ""}|${m.creado_en.slice(0, 16)}`;
     if (!cargas.has(clave)) { if (cargas.size >= 15) continue; cargas.set(clave, { clave, local_id: m.local_id, nota: m.nota, creado_en: m.creado_en, items: [] }); }
-    cargas.get(clave)!.items.push({ producto_id: m.producto_id, cantidad: Number(m.cantidad) });
+    // Un producto con colores tiene un movimiento por color: la etiqueta es una sola por producto
+    const items = cargas.get(clave)!.items;
+    const ya = items.find((i) => i.producto_id === m.producto_id);
+    if (ya) ya.cantidad += Number(m.cantidad); else items.push({ producto_id: m.producto_id, cantidad: Number(m.cantidad) });
   }
   return NextResponse.json({ cargas: [...cargas.values()] });
 }

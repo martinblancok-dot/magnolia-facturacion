@@ -124,6 +124,16 @@ export async function guardarPedido(db: SupabaseClient, p: PedidoTN): Promise<"n
     if (variantes.length) encontrados.push(...(((await db.from("productos").select(sel).in("tn_variante_id", variantes)).data ?? []) as unknown as Prod[]));
     if (productosTN.length) encontrados.push(...(((await db.from("productos").select(sel).in("tn_producto_id", productosTN)).data ?? []) as unknown as Prod[]));
     if (codigos.length) encontrados.push(...(((await db.from("productos").select(sel).in("barcode", codigos)).data ?? []) as unknown as Prod[]));
+    // Colores: la variante de Tiendanube corresponde a un color del sistema (si está la migración 0032)
+    type Color = { id: string; producto_id: string; color: string; tn_variante_id: number; sku_variante: string; stock_variantes: { local_id: number; cantidad: number }[] };
+    const colores: Color[] = [];
+    if (variantes.length) {
+      const r = await db.from("producto_variantes").select("id, producto_id, color, tn_variante_id, sku_variante, stock_variantes(local_id, cantidad)").in("tn_variante_id", variantes);
+      if (!r.error) colores.push(...((r.data ?? []) as unknown as Color[]));
+    }
+    const buscarColor = (i: (typeof items)[number]) =>
+      colores.find((x) => i.variant_id && Number(x.tn_variante_id) === Number(i.variant_id))
+      ?? colores.find((x) => i.sku && x.sku_variante === i.sku);
     const buscar = (i: (typeof items)[number]) =>
       encontrados.find((x) => i.variant_id && Number(x.tn_variante_id) === Number(i.variant_id))
       ?? encontrados.find((x) => i.product_id && Number(x.tn_producto_id) === Number(i.product_id))
@@ -141,10 +151,13 @@ export async function guardarPedido(db: SupabaseClient, p: PedidoTN): Promise<"n
       throw new Error(error.message);
     }
     const filas = items.map((i, n) => {
-      const prod = buscar(i);
-      const stock = Object.fromEntries((prod?.stock ?? []).map((s) => [s.local_id, Number(s.cantidad)]));
+      const color = buscarColor(i);
+      const prod = color ? null : buscar(i);
+      // Sale del local que tiene más de ese color (o del producto, si no tiene colores)
+      const stock = Object.fromEntries(((color ? color.stock_variantes : prod?.stock) ?? []).map((s) => [s.local_id, Number(s.cantidad)]));
       return {
-        pedido_id: p.id, n: n + 1, producto_id: prod?.id ?? null,
+        pedido_id: p.id, n: n + 1, producto_id: color?.producto_id ?? prod?.id ?? null,
+        ...(color ? { variante_id: color.id, color: color.color } : {}),
         nombre: nombreProducto(i.name) || "Producto", sku: i.sku || i.barcode || null,
         cantidad: Math.max(1, Number(i.quantity) || 1), precio: Number(i.price) || 0,
         local_id: elegirLocal(stock, fila.retira_local),

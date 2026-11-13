@@ -75,6 +75,12 @@ export default async function PlanillaConfig() {
                 )}
               </div>
             )}
+            {estado.colores && (
+              estado.colores.error ? <p className="text-sm text-red-700">Colores: {estado.colores.error}</p> : (
+                <p className="text-sm text-suave">Colores (columna &quot;Colores&quot;): {estado.colores.productos} productos con colores
+                  {estado.colores.nuevos || estado.colores.quitados ? ` · en la última: ${estado.colores.nuevos} colores nuevos, ${estado.colores.quitados} quitados` : ""}.</p>
+              )
+            )}
           </>
         )}
       </section>
