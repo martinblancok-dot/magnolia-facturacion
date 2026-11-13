@@ -20,6 +20,7 @@ import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { anularPagoCC, registrarPagoCC, saldosCC } from "@/lib/supabase/cuentas";
 import { URL_SISTEMA, borrarCredencialesTN, leerCredencialesTN } from "@/lib/tiendanube";
 import { sincronizarTienda } from "@/lib/tiendanube-sync";
+import { traerFotosSiToca } from "@/lib/tiendanube-fotos";
 import { marcarEntregado, registrarAvisosTN, revisarPedidosTN } from "@/lib/tiendanube-pedidos";
 import { clienteUsuario, mailDeUsuario, perfilDe, soloDuenio, usuarioActual } from "@/lib/supabase/sesion";
 
@@ -839,12 +840,16 @@ export async function sincronizarTiendaAhora(): Promise<Mensaje> {
   const cred = await leerCredencialesTN(db);
   if (!cred) return { ok: false, texto: "La tienda no está conectada (Configuración → Tienda online)." };
   try {
-    const r = await sincronizarTienda(db, cred, { hastaMs: 50_000 });
+    const inicio = Date.now();
+    const r = await sincronizarTienda(db, cred, { hastaMs: 45_000 });
+    // También trae las fotos de la tienda (si pasó una hora desde la última vez)
+    const resta = 55_000 - (Date.now() - inicio);
+    const fotos = resta > 10_000 ? await traerFotosSiToca(db, cred, resta).catch(() => null) : null;
     revalidatePath("/tienda-online");
     const partes = [r.creados && `${r.creados} creados`, r.actualizados && `${r.actualizados} actualizados`, r.ocultos && `${r.ocultos} ocultos`].filter(Boolean);
     return {
       ok: r.errores === 0,
-      texto: `${partes.length ? partes.join(", ") : "No había cambios"}.${r.pendientes ? ` Quedan ${r.pendientes} para la próxima vuelta (se siguen solos).` : ""}${r.errores ? ` ${r.errores} con error: ${r.detalleErrores.join(" · ")}` : ""}`,
+      texto: `${partes.length ? partes.join(", ") : "No había cambios"}.${fotos?.actualizadas ? ` Fotos traídas de la tienda: ${fotos.actualizadas}.` : ""}${r.pendientes ? ` Quedan ${r.pendientes} para la próxima vuelta (se siguen solos).` : ""}${r.errores ? ` ${r.errores} con error: ${r.detalleErrores.join(" · ")}` : ""}`,
     };
   } catch (e) { return { ok: false, texto: (e as Error).message }; }
 }

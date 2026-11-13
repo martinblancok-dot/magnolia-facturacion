@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SubirFotos } from "./subir";
+import { TraerFotosTN } from "./traer-tn";
 import { adminDesbloqueado } from "@/lib/admin";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioActual } from "@/lib/supabase/sesion";
@@ -9,10 +10,13 @@ export default async function FotosProductos() {
   await usuarioActual();
   if (!(await adminDesbloqueado())) redirect("/productos");
   const db = clienteServidor();
-  const [{ count: total }, { count: conFoto, error }] = await Promise.all([
+  const [{ count: total }, { count: conFoto, error }, { data: ultimaTN }] = await Promise.all([
     db.from("productos").select("id", { count: "exact", head: true }).eq("activo", true),
     db.from("productos").select("id", { count: "exact", head: true }).eq("activo", true).not("imagen_url", "is", null),
+    db.from("ajustes").select("valor").eq("clave", "tn_fotos_ultima").maybeSingle(),
   ]);
+  let ultima: string | null = null;
+  try { ultima = ultimaTN?.valor ? JSON.parse(ultimaTN.valor).cuando ?? null : null; } catch {}
   return (
     <div className="max-w-3xl space-y-5">
       <Link href="/productos" className="text-sm text-suave underline">← Productos</Link>
@@ -31,6 +35,7 @@ export default async function FotosProductos() {
           <li>Se achican solas a 300×300 (recorte al centro). Si ya había foto, se reemplaza.</li>
         </ul>
       </div>
+      <TraerFotosTN ultima={ultima} />
       <SubirFotos />
     </div>
   );

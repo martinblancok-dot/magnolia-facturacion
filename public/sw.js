@@ -21,7 +21,8 @@ const conTiempo = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method === "GET" && url.pathname.includes("/storage/v1/object/public/productos-miniaturas/")) {
+  // Miniaturas: las del sistema y las que vienen de la CDN de Tiendanube (para verlas sin internet)
+  if (req.method === "GET" && (url.pathname.includes("/storage/v1/object/public/productos-miniaturas/") || /(^|\.)mitiendanube\.com$/.test(url.hostname))) {
     e.respondWith((async () => {
       const cache = await caches.open(FOTOS);
       const guardada = await cache.match(req);

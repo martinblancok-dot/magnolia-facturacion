@@ -9,6 +9,7 @@ import { facturarPendientes } from "@/lib/facturador";
 import { traerCobros } from "@/lib/mercadopago";
 import { URL_SISTEMA, leerCredencialesTN } from "@/lib/tiendanube";
 import { sincronizarTienda } from "@/lib/tiendanube-sync";
+import { traerFotosSiToca } from "@/lib/tiendanube-fotos";
 import { registrarAvisosTN, revisarPedidosTN } from "@/lib/tiendanube-pedidos";
 import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisores } from "@/lib/supabase/almacen";
@@ -64,6 +65,12 @@ export async function POST(req: Request) {
     }
     const resta = 105_000 - (Date.now() - ahora.getTime());
     if (cred && resta > 10_000) informe.tiendaOnline = await sincronizarTienda(db, cred, { hastaMs: resta });
+    // Fotos de la tienda → sistema (una vez por hora, con lo que quede de tiempo)
+    const resta2 = 105_000 - (Date.now() - ahora.getTime());
+    if (cred && resta2 > 15_000) {
+      try { const f = await traerFotosSiToca(db, cred, resta2 - 5_000); if (f) informe.fotosTienda = { ...f, skuNoEncontrado: f.skuNoEncontrado.length }; }
+      catch (err) { informe.errorFotosTienda = (err as Error).message; }
+    }
   } catch (err) { informe.errorTiendaOnline = (err as Error).message; }
   return NextResponse.json(informe);
 }
