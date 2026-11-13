@@ -14,6 +14,7 @@ var LOCALES = { 1: 'Magnolia Home', 2: 'Magnolia Beauty' };
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Magnolia')
     .addItem('Sincronizar ahora', 'sincronizarAhora')
+    .addItem('Actualizar colores ahora', 'actualizarColoresAhora')
     .addSeparator()
     .addItem('Sumar "Lista Etiquetas" al stock de Magnolia Home', 'sumarStockHome')
     .addItem('Sumar "Lista Etiquetas" al stock de Magnolia Beauty', 'sumarStockBeauty')
@@ -45,7 +46,14 @@ function configurar() {
     if (t.getHandlerFunction() === 'sincronizarAutomatico') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('sincronizarAutomatico').timeBased().everyMinutes(10).create();
+  activarRevisionPedidos_();
   sincronizarAhora();
+}
+
+/** Cada minuto se fija si desde el sistema tocaron "Actualizar colores desde la planilla" (una sola vez). */
+function activarRevisionPedidos_() {
+  var ya = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'revisarPedidos'; });
+  if (!ya) ScriptApp.newTrigger('revisarPedidos').timeBased().everyMinutes(1).create();
 }
 
 // ---------- Comunicación con el sistema ----------
@@ -224,12 +232,43 @@ function sincronizarAhora() {
       '• Nuevos en el sistema: ' + r.nuevos + '\n• Actualizados: ' + r.actualizados + '\n• Dados de baja: ' + r.bajas;
     if ((r.aplicados || []).length) texto += '\n\nCambios del sistema escritos en la planilla: ' + (r.aplicados.length - errores.length);
     if (errores.length) texto += '\nNo se pudieron escribir ' + errores.length + ':\n' + errores.map(function (e) { return '- ' + e.error; }).join('\n');
+    if (r.colores) texto += '\n• Productos con colores: ' + r.colores.productos + (r.colores.error ? ' (error: ' + r.colores.error + ')' : '');
     if (r.bajasFrenadas) texto += '\n\nOjo: llegaron muy pocos productos, así que no se dio de baja nada (' + r.bajasFrenadas + ' quedaron igual).';
     if (r.repetidos && r.repetidos.length) texto += '\n\nHay ' + r.repetidos.length + ' códigos de barras repetidos (se ven en el sistema, Configuración → Precios Deco).';
     ui.alert('Magnolia', texto, ui.ButtonSet.OK);
   } catch (e) {
     ui.alert('Magnolia', 'No se pudo sincronizar: ' + e.message, ui.ButtonSet.OK);
   }
+}
+
+// ---------- Colores ----------
+
+function actualizarColores_() {
+  return llamar_('post', '/api/planilla/colores', { hojas: leerPestanas_() });
+}
+
+/** Menú: lee la columna "Colores" de todas las pestañas y actualiza los colores en el sistema. */
+function actualizarColoresAhora() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    activarRevisionPedidos_();
+    var r = actualizarColores_();
+    var texto = 'Colores actualizados.\n• Productos con colores: ' + r.productos + '\n• Colores nuevos: ' + r.nuevos + '\n• Colores quitados: ' + r.quitados;
+    if (r.error) texto += '\n\nError: ' + r.error;
+    if (r.sinProducto && r.sinProducto.length) texto += '\n\nNo están en el sistema (sincronizá primero): ' + r.sinProducto.join(', ');
+    if (r.detalle && r.detalle.length) texto += '\n\n' + r.detalle.slice(0, 30).map(function (d) { return d.sku + ' (' + d.hoja + '): ' + d.colores.join(', '); }).join('\n');
+    ui.alert('Magnolia', texto, ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Magnolia', 'No se pudieron actualizar los colores: ' + e.message, ui.ButtonSet.OK);
+  }
+}
+
+/** Lo corre el reloj cada minuto: si en el sistema pidieron actualizar los colores, lo hace. */
+function revisarPedidos() {
+  try {
+    var r = llamar_('get', '/api/planilla/pedido');
+    if (r.colores) actualizarColores_();
+  } catch (e) { /* sin conexión: se reintenta en un minuto */ }
 }
 
 // ---------- Stock desde "Lista Etiquetas" ----------

@@ -37,7 +37,7 @@ export interface EstadoPlanilla {
   /** Códigos de barras alternativos (columna "Barcode original"). */
   codigos?: { total: number; agregados: number; quitados: number; repetidos: { codigo: string; detalle: string }[]; error?: string };
   /** Colores (columna "Colores"). */
-  colores?: { productos: number; nuevos: number; quitados: number; error?: string };
+  colores?: { productos: number; nuevos: number; quitados: number; error?: string; cuando?: string; detalle?: { sku: string; hoja: string; colores: string[] }[]; sinProducto?: string[] };
 }
 
 export async function guardarEstado(db: SupabaseClient, e: EstadoPlanilla) {
@@ -130,7 +130,7 @@ async function sincronizarCodigos(db: SupabaseClient, planilla: ProductoImportad
 }
 
 /** Crea, reactiva y desactiva los colores de cada producto según la columna "Colores". Nunca borra (queda el historial). */
-async function sincronizarColores(db: SupabaseClient, planilla: ProductoImportado[]): Promise<EstadoPlanilla["colores"]> {
+export async function sincronizarColores(db: SupabaseClient, planilla: ProductoImportado[]): Promise<EstadoPlanilla["colores"]> {
   const conColumna = planilla.filter((p) => p.colores !== undefined);
   if (!conColumna.length) return undefined; // la planilla no tiene la columna: no se toca nada
   const existentes: (VarianteExistente & { producto_id: string })[] = [];
@@ -151,9 +151,12 @@ async function sincronizarColores(db: SupabaseClient, planilla: ProductoImportad
   const activar: string[] = [], desactivar: string[] = [], tocados = new Set<string>();
   const orden: { id: string; orden: number }[] = [];
   let conColores = 0;
+  const detalle: { sku: string; hoja: string; colores: string[] }[] = [];
+  const sinProducto: string[] = [];
   for (const p of conColumna) {
     const prod = productos.get(p.barcode);
-    if (!prod) continue;
+    if (p.colores?.length) detalle.push({ sku: p.sku, hoja: p.hoja, colores: p.colores });
+    if (!prod) { if (p.colores?.length) sinProducto.push(`${p.sku} (${p.hoja})`); continue; }
     const plan = planVariantes(prod.sku || prod.barcode, p.colores ?? [], porProducto.get(prod.id) ?? []);
     if (p.colores?.length) conColores++;
     crear.push(...plan.crear.map((c) => ({ producto_id: prod.id, ...c })));
@@ -166,7 +169,7 @@ async function sincronizarColores(db: SupabaseClient, planilla: ProductoImportad
   const ahora = new Date().toISOString();
   for (let i = 0; i < crear.length; i += 500) {
     const { error } = await db.from("producto_variantes").insert(crear.slice(i, i + 500));
-    if (error) return { productos: conColores, nuevos: 0, quitados: 0, error: error.message };
+    if (error) return { productos: conColores, nuevos: 0, quitados: 0, error: error.message, detalle };
   }
   for (let i = 0; i < activar.length; i += 300) await db.from("producto_variantes").update({ activo: true, actualizado_en: ahora }).in("id", activar.slice(i, i + 300));
   for (let i = 0; i < desactivar.length; i += 300) await db.from("producto_variantes").update({ activo: false, actualizado_en: ahora }).in("id", desactivar.slice(i, i + 300));
@@ -174,5 +177,5 @@ async function sincronizarColores(db: SupabaseClient, planilla: ProductoImportad
   // Que la caja baje el catálogo de nuevo
   const ids = [...tocados];
   for (let i = 0; i < ids.length; i += 300) await db.from("productos").update({ actualizado_en: ahora }).in("id", ids.slice(i, i + 300));
-  return { productos: conColores, nuevos: crear.length, quitados: desactivar.length };
+  return { productos: conColores, nuevos: crear.length, quitados: desactivar.length, detalle: detalle.slice(0, 300), sinProducto: sinProducto.slice(0, 50) };
 }

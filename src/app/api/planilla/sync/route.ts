@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { guardarEstado, planillaAutorizada, sincronizarDesdePlanilla } from "@/lib/supabase/planilla";
 
-export const maxDuration = 60;
+export const maxDuration = 120; // la planilla tiene miles de productos y además los colores
 
 export async function POST(req: Request) {
   const db = clienteServidor();
