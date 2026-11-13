@@ -27,6 +27,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Todo menos la tarea automática y los archivos estáticos
-  matcher: ["/((?!api/procesar|api/planilla|api/respaldo|api/tiendanube/webhooks|_next/static|_next/image|manifest.webmanifest|sw.js|icon|apple-icon|icono-).*)"],
+  // Todo menos la tarea automática y los archivos estáticos (tienda-img: fotos públicas para la tienda online)
+  matcher: ["/((?!api/procesar|api/planilla|api/respaldo|api/tiendanube/webhooks|_next/static|_next/image|manifest.webmanifest|sw.js|icon|apple-icon|icono-|tienda-img/).*)"],
 };
