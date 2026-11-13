@@ -3,15 +3,19 @@
 // con el teclado: números 1 a 9 (o flechas + Enter) eligen, Esc cancela.
 // Si mientras está abierta se escanea otro código, se ignora (el lector "teclea" muy rápido y termina en Enter).
 // Funciona sin internet: los colores vienen en el catálogo guardado.
+import type { ColorCaja } from "@/lib/variantes";
+import { Miniatura } from "./miniatura";
 import { useEffect, useRef, useState } from "react";
 
 const RAPIDO = 50; // ms entre teclas: más rápido que esto es el lector de códigos, no una persona
 
-export function ElegirColor({ nombre, colores, cantidad = 1, onElegir, onCancelar }: {
+export function ElegirColor({ nombre, colores, cantidad = 1, fotoProducto, onElegir, onCancelar }: {
   nombre: string;
-  colores: [string, string][];
+  /** Si un color no tiene foto propia, se muestra la del producto. */
+  fotoProducto?: string | null;
+  colores: ColorCaja[];
   cantidad?: number;
-  onElegir: (variante: [string, string]) => void;
+  onElegir: (variante: ColorCaja) => void;
   onCancelar: () => void;
 }) {
   const [marcado, setMarcado] = useState(-1);
@@ -47,6 +51,7 @@ export function ElegirColor({ nombre, colores, cantidad = 1, onElegir, onCancela
     return () => { window.removeEventListener("keydown", tecla, true); if (pendiente.current) clearTimeout(pendiente.current); };
   }, [colores]);
 
+  const conFotos = colores.some((c) => c[2]);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onCancelar}>
       <div role="dialog" aria-label="Elegir color" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -57,6 +62,7 @@ export function ElegirColor({ nombre, colores, cantidad = 1, onElegir, onCancela
             <button key={c[0]} tabIndex={-1} onClick={() => onElegir(c)} onMouseEnter={() => setMarcado(i)}
               className={`relative min-h-16 rounded-xl border-2 px-3 py-4 text-lg font-semibold ${i === marcado ? "border-marca bg-marca-claro" : "border-linea bg-white"}`}>
               {i < 9 && <span className="absolute top-1 left-2 text-xs font-normal text-suave">{i + 1}</span>}
+              {conFotos && <span className="mb-2 flex justify-center"><Miniatura ruta={c[2] ?? fotoProducto} tam={88} alt={c[1]} /></span>}
               {c[1]}
             </button>
           ))}

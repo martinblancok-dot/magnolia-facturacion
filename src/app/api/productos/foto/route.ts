@@ -16,7 +16,7 @@ const COLS = "id, sku, barcode, nombre, imagen_url";
 
 /** .webp de 300x300 y menos de 40 KB (baja la calidad de a poco hasta que entre). */
 async function miniatura(entrada: Buffer): Promise<Buffer> {
-  const base = sharp(entrada, { failOn: "none" }).rotate().resize(LADO_MINIATURA, LADO_MINIATURA, { fit: "cover", position: "centre" }).flatten({ background: "#ffffff" });
+  const base = sharp(entrada, { failOn: "none" }).rotate().resize(LADO_MINIATURA, LADO_MINIATURA, { fit: "cover", position: "centre" }).flatten({ background: "#F5F2EE" });
   for (const q of [82, 72, 62, 52, 42, 32]) {
     const b = await base.clone().webp({ quality: q, effort: 4 }).toBuffer();
     if (b.length <= MAX_BYTES_MINIATURA) return b;
@@ -74,6 +74,28 @@ export async function POST(req: Request) {
   try { webp = await miniatura(Buffer.from(await foto.arrayBuffer())); }
   catch (e) { return NextResponse.json({ error: `No se pudo convertir la foto: ${(e as Error).message}` }, { status: 400 }); }
 
+  // Foto de un color (se llama como el código del color: 1954-3-NEG.webp)
+  const varId = String(form?.get("variante_id") ?? "");
+  let color: { id: string; color: string; url: string } | null = null;
+  if (varId) {
+    if (!/^[0-9a-f-]{36}$/i.test(varId)) return NextResponse.json({ error: "Color inválido." }, { status: 400 });
+    const { data: v, error: ev } = await db.from("producto_variantes").select("id, color, sku_variante, imagen_url").eq("id", varId).eq("producto_id", producto.id).maybeSingle();
+    if (ev) return NextResponse.json({ error: /imagen_url/.test(ev.message) ? "Falta correr la migración 0033_fotos_colores.sql en Supabase." : ev.message }, { status: 500 });
+    if (!v) return NextResponse.json({ error: "Ese color no es de ese producto." }, { status: 400 });
+    const rutaColor = `${nombreFoto(v.sku_variante, producto.barcode)}-${v.id.slice(0, 6)}.webp`;
+    const { error: e1 } = await db.storage.from(BUCKET_FOTOS).upload(rutaColor, webp, { contentType: "image/webp", upsert: true, cacheControl: "31536000" });
+    if (e1) return NextResponse.json({ error: e1.message }, { status: 500 });
+    const urlColor = `${db.storage.from(BUCKET_FOTOS).getPublicUrl(rutaColor).data.publicUrl}?v=${Date.now().toString(36)}`;
+    const ahora = new Date().toISOString();
+    await db.from("producto_variantes").update({ imagen_url: urlColor, actualizado_en: ahora }).eq("id", v.id);
+    color = { id: v.id, color: v.color, url: urlColor };
+    // Si no va también como foto principal, solo se avisa a la caja que hay algo nuevo
+    if (form?.get("principal") === "0") {
+      await db.from("productos").update({ actualizado_en: ahora }).eq("id", producto.id);
+      return NextResponse.json({ estado: "ok", producto: { id: producto.id, sku: producto.sku, nombre: producto.nombre }, url: urlColor, color, bytes: webp.length, reemplazo: !!v.imagen_url });
+    }
+  }
+
   // Se llama como el SKU. Si otro producto tiene el mismo SKU, se le agrega un pedacito del id para no pisarse.
   let ruta = `${nombreFoto(producto.sku, producto.barcode)}.webp`;
   if (producto.sku) {
@@ -91,7 +113,7 @@ export async function POST(req: Request) {
   const url = `${db.storage.from(BUCKET_FOTOS).getPublicUrl(ruta).data.publicUrl}?v=${Date.now().toString(36)}`;
   const { error } = await db.from("productos").update({ imagen_url: url, actualizado_en: new Date().toISOString() }).eq("id", producto.id);
   if (error) return NextResponse.json({ error: /imagen_url/.test(error.message) ? "Falta correr la migración 0031_fotos_productos.sql en Supabase." : error.message }, { status: 500 });
-  return NextResponse.json({ estado: "ok", producto: { id: producto.id, sku: producto.sku, nombre: producto.nombre }, url, bytes: webp.length, reemplazo: !!producto.imagen_url });
+  return NextResponse.json({ estado: "ok", producto: { id: producto.id, sku: producto.sku, nombre: producto.nombre }, url, color, bytes: webp.length, reemplazo: !!producto.imagen_url });
 }
 
 export async function DELETE(req: Request) {

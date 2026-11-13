@@ -34,7 +34,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
   const nuevo = id === "nuevo";
   let p = null;
   let codigos: { codigo: string; origen: string }[] = [];
-  let colores: { id: string; color: string; sku_variante: string; activo: boolean; stock_variantes: { local_id: number; cantidad: number }[] }[] = [];
+  let colores: { id: string; color: string; sku_variante: string; activo: boolean; imagen_url?: string | null; stock_variantes: { local_id: number; cantidad: number }[] }[] = [];
   if (!nuevo) {
     if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
     const { data } = await clienteServidor().from("productos").select("*").eq("id", id).maybeSingle();
@@ -42,7 +42,9 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
     p = data;
     const r = await clienteServidor().from("producto_codigos").select("codigo, origen").eq("producto_id", id).order("creado_en");
     codigos = r.error ? [] : r.data ?? [];
-    const cv = await clienteServidor().from("producto_variantes").select("id, color, sku_variante, activo, orden, stock_variantes(local_id, cantidad)").eq("producto_id", id).order("orden").order("color");
+    const selColores = (extra: string) => clienteServidor().from("producto_variantes").select(`id, color, sku_variante, activo, orden${extra}, stock_variantes(local_id, cantidad)`).eq("producto_id", id).order("orden").order("color");
+    let cv = await selColores(", imagen_url");
+    if (cv.error && /imagen_url/.test(cv.error.message)) cv = await selColores("");
     colores = cv.error ? [] : ((cv.data ?? []) as unknown as typeof colores);
   }
   return (
@@ -63,7 +65,7 @@ export default async function EditarProducto({ params }: { params: Promise<{ id:
                 const en = (l: number) => Number(c.stock_variantes.find((s) => s.local_id === l)?.cantidad ?? 0);
                 return (
                   <tr key={c.id} className={c.activo ? "" : "text-suave line-through"}>
-                    <td className="py-1.5">{c.color}{!c.activo && <span className="ml-1 text-xs no-underline">(ya no está en la planilla)</span>}</td>
+                    <td className="py-1.5"><span className="mr-2 inline-block align-middle"><Miniatura ruta={rutaCorta(c.imagen_url) ?? rutaCorta(p.imagen_url)} tam={32} alt={c.color} /></span>{c.color}{!c.activo && <span className="ml-1 text-xs no-underline">(ya no está en la planilla)</span>}</td>
                     <td className="font-mono text-xs">{c.sku_variante}</td>
                     <td className="text-right tabular-nums">{en(1)}</td>
                     <td className="text-right tabular-nums">{en(2)}</td>

@@ -3,7 +3,7 @@
 // y las ventas se suben solas cuando vuelve la conexión.
 import Link from "next/link";
 import { ElegirColor } from "@/app/elegir-color";
-import type { VariantesCaja } from "@/lib/variantes";
+import type { ColorCaja, VariantesCaja } from "@/lib/variantes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PedidosWeb } from "./pedidos-web";
 import { Miniatura } from "../miniatura";
@@ -388,7 +388,7 @@ export function Caja() {
 
   // Producto con colores: primero se elige el color
   const [eligiendo, setEligiendo] = useState<{ p: ProductoCaja; cantidad: number } | null>(null);
-  const sumar = (p: ProductoCaja, variante?: [string, string], cant = cantidadPedida) => {
+  const sumar = (p: ProductoCaja, variante?: ColorCaja, cant = cantidadPedida) => {
     const colores = catalogo?.variantes?.[p[0]];
     if (colores?.length && !variante) {
       setEligiendo({ p, cantidad: cant });
@@ -812,7 +812,7 @@ export function Caja() {
     <div className="flex h-dvh flex-col overflow-hidden bg-fondo">
       {zona}
       {eligiendo && catalogo?.variantes?.[eligiendo.p[0]] && (
-        <ElegirColor nombre={eligiendo.p[3]} colores={catalogo.variantes[eligiendo.p[0]]} cantidad={eligiendo.cantidad}
+        <ElegirColor nombre={eligiendo.p[3]} colores={catalogo.variantes[eligiendo.p[0]]} cantidad={eligiendo.cantidad} fotoProducto={eligiendo.p[9] ?? null}
           onElegir={(v) => sumar(eligiendo.p, v, eligiendo.cantidad)} onCancelar={() => { setEligiendo(null); entrada.current?.focus(); }} />
       )}
       {/* ---------- Barra superior ---------- */}
