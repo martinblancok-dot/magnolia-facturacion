@@ -67,19 +67,21 @@ const palabras = (s: string) => plano(s).split("-").filter(Boolean);
  * Vale si palabras seguidas del archivo coinciden con palabras seguidas del color, por ejemplo:
  *   "rosa" → "Rosa tornasolado" (comienzo del color), "flores-verdes" → "Flores verdes" (el color entero),
  *   "rayada" → "Transparente rayada" (una palabra del color).
- * Puntaje: más palabras coincidentes gana; a igual cantidad, gana si coincide con el comienzo del color
- * y después si cubre el color entero.
+ * Puntaje: primero gana el color que aparece COMPLETO en el nombre (todas sus palabras, en orden):
+ *   "botella-flores-margaritas" → "Margaritas" (completo) le gana a "Flores verdes" (falta "verdes").
+ * Después, más palabras coincidentes; a igualdad, el que coincide con el comienzo del color.
  */
 export function puntajeColor(restoArchivo: string, color: string): number {
   const a = palabras(restoArchivo), c = palabras(color);
   if (!a.length || !c.length) return 0;
   let mejor = 0;
+  const completo = `-${a.join("-")}-`.includes(`-${c.join("-")}-`);
   for (let i = 0; i < a.length; i++) {
     for (let j = 0; j < c.length; j++) {
       let n = 0;
       while (i + n < a.length && j + n < c.length && a[i + n] === c[j + n]) n++;
       if (!n) continue;
-      const p = n * 100 + (j === 0 ? 10 : 0) + (j === 0 && n === c.length ? 5 : 0);
+      const p = (completo ? 10_000 : 0) + n * 100 + (j === 0 ? 10 : 0);
       if (p > mejor) mejor = p;
     }
   }
@@ -195,9 +197,9 @@ export function planImportacion(filas: FilaCsvFotos[], archivos: string[], produ
     if (lista.length > 1) return { fila, estado: "sku_repetido", principal };
     const producto = lista[0];
     if (!conColor) return { fila, estado: "listo", producto, color: null, principal };
-    // El color: por su código interno o por el nombre (sin importar mayúsculas ni acentos)
-    const color = producto.colores.find((c) => skuPlano(c.sku_variante) === skuPlano(fila.sku_variante))
-      ?? producto.colores.find((c) => plano(c.color) === plano(fila.color)) ?? null;
+    // El color: por el nombre (sin importar mayúsculas ni tildes); si no, por su código interno
+    const color = producto.colores.find((c) => plano(c.color) === plano(fila.color))
+      ?? producto.colores.find((c) => skuPlano(c.sku_variante) === skuPlano(fila.sku_variante)) ?? null;
     if (!color) return { fila, estado: principal ? "listo" : "color_no_encontrado", producto, color: null, principal };
     return { fila, estado: "listo", producto, color, principal };
   });
