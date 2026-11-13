@@ -36,12 +36,25 @@ describe("transferencias confirmadas por la caja", () => {
         { id: "c3", fecha_hora: iso(-10), importe: 15000, origen: "posnet", estado: "a_facturar" },
       ],
       ventas: [
-        { id: "v1", creada_en: iso(-33), medio_pago: "transferencia", total: 71250, anulada: false, pagos: [{ medio: "efectivo", monto: 50000 }, { medio: "transferencia", monto: 21250 }] },
-        { id: "v2", creada_en: iso(-11), medio_pago: "debito", total: 15000, anulada: false },
+        { id: "v1", creada_en: iso(-33), medio_pago: "transferencia", total: 71250, anulada: false, prueba: false, pagos: [{ medio: "efectivo", monto: 50000 }, { medio: "transferencia", monto: 21250 }] },
+        { id: "v2", creada_en: iso(-11), medio_pago: "debito", total: 15000, anulada: false, prueba: false },
       ],
     });
     const n = await confirmarTransferenciasConCaja(db, iso(-180));
     expect(n).toBe(1);
     expect(updates[0]).toMatchObject({ tabla: "cobros", valores: { estado: "a_facturar" }, ids: ["c1"] });
+  });
+});
+
+describe("caja de prueba", () => {
+  it("una venta de prueba no confirma transferencias reales", async () => {
+    const ahora = Date.now();
+    const iso = (min: number) => new Date(ahora + min * 60_000).toISOString();
+    const { db, updates } = base({
+      cobros: [{ id: "c1", fecha_hora: iso(-30), importe: 5000, origen: "transferencia", estado: "revisar" }],
+      ventas: [{ id: "v1", creada_en: iso(-31), medio_pago: "transferencia", total: 5000, anulada: false, prueba: true }],
+    });
+    expect(await confirmarTransferenciasConCaja(db, iso(-180))).toBe(0);
+    expect(updates).toEqual([]);
   });
 });
