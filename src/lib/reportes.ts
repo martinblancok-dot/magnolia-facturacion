@@ -1,6 +1,6 @@
 // Cálculo de reportes de ventas (puro: recibe ventas y datos de productos).
 import { partesPago } from "./caja";
-export interface ItemRep { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; total: number; costo?: number | null }
+export interface ItemRep { producto_id: string | null; sku: string | null; nombre: string; cantidad: number; total: number; costo?: number | null; color?: string | null }
 export interface VentaRep { id: string; local_id: number; creada_en: string; medio_pago: string; total: number; giftcard_monto: number; pagos?: { medio: string; monto: number }[] | null; items: ItemRep[] }
 export interface ProductoRep { id: string; costo: number | null; categoria: string | null; proveedor: string | null }
 
@@ -29,7 +29,7 @@ export function tasaCargos(v: VentaRep, cargos: Cargos): number {
 export function calcularReporte(ventas: VentaRep[], productos: Map<string, ProductoRep>, cargos: Cargos = {}) {
   const porMedio = new Map<string, number>();
   const porLocal = new Map<number, { ventas: number; cobrado: number; ingreso: number }>();
-  const porCategoria = new Map<string, Fila>(), porProveedor = new Map<string, Fila>(), porProducto = new Map<string, Fila & { nombre: string; sku: string | null }>();
+  const porCategoria = new Map<string, Fila>(), porProveedor = new Map<string, Fila>(), porProducto = new Map<string, Fila & { nombre: string; sku: string | null; colores: Record<string, number> }>();
   const porHora = Array(24).fill(0) as number[], porDia = Array(7).fill(0) as number[];
   const porFecha = new Map<string, number>();
   let comisiones = 0;
@@ -70,8 +70,10 @@ export function calcularReporte(ventas: VentaRep[], productos: Map<string, Produ
         m.set(k, f);
       }
       const k = i.producto_id ?? `varios:${i.nombre}`;
-      const f = porProducto.get(k) ?? { ...nueva(k), nombre: i.nombre.replace(/^Devolución: /, ""), sku: i.sku };
+      const nombre = i.nombre.replace(/^Devolución: /, "");
+      const f = porProducto.get(k) ?? { ...nueva(k), nombre: i.color && nombre.endsWith(` · ${i.color}`) ? nombre.slice(0, -(i.color.length + 3)) : nombre, sku: i.sku, colores: {} };
       f.unidades += cant; f.ingreso += plata; f.ventas += cant > 0 ? 1 : 0;
+      if (i.color) f.colores[i.color] = (f.colores[i.color] ?? 0) + cant; // detalle por color
       if (c === null) f.sinCosto += plata; else f.costo += c;
       porProducto.set(k, f);
     }

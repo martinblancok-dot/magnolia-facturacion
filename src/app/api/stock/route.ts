@@ -17,19 +17,29 @@ export async function GET(req: Request) {
     for (const s of data ?? []) stock[s.producto_id] = Number(s.cantidad);
     if (!data || data.length < 1000) break;
   }
-  return NextResponse.json({ stock });
+  // Por color (si todavía no está la migración 0032, no hay)
+  const colores: Record<string, number> = {};
+  for (let i = 0; ; i += 1000) {
+    const { data, error } = await db.from("stock_variantes").select("variante_id, cantidad").eq("local_id", local).range(i, i + 999);
+    if (error) break;
+    for (const s of data ?? []) colores[s.variante_id] = Number(s.cantidad);
+    if (!data || data.length < 1000) break;
+  }
+  return NextResponse.json({ stock, colores });
 }
 
 export async function POST(req: Request) {
   const u = await usuario();
   if (!u) return NextResponse.json({ error: "sin sesión" }, { status: 401 });
   const b = (await req.json().catch(() => null)) as
-    | { local?: number; tipo?: string; completo?: boolean; nota?: string; items?: { producto_id: string; cantidad: number }[] }
+    | { local?: number; tipo?: string; completo?: boolean; nota?: string; items?: { producto_id: string; variante_id?: string | null; cantidad: number }[] }
     | null;
   if (!b || ![1, 2].includes(Number(b.local)) || !["ingreso", "conteo"].includes(String(b.tipo))) {
     return NextResponse.json({ error: "datos inválidos" }, { status: 400 });
   }
-  const items = (b.items ?? []).filter((i) => /^[0-9a-f-]{36}$/i.test(i.producto_id) && Number.isFinite(Number(i.cantidad)) && Number(i.cantidad) >= 0);
+  const items = (b.items ?? [])
+    .filter((i) => /^[0-9a-f-]{36}$/i.test(i.producto_id) && (!i.variante_id || /^[0-9a-f-]{36}$/i.test(i.variante_id)) && Number.isFinite(Number(i.cantidad)) && Number(i.cantidad) >= 0)
+    .map((i) => ({ producto_id: i.producto_id, cantidad: Number(i.cantidad), ...(i.variante_id ? { variante_id: i.variante_id } : {}) }));
   if (items.length === 0) return NextResponse.json({ error: "no hay productos" }, { status: 400 });
   const { data, error } = await clienteServidor().rpc("aplicar_stock", {
     p_local: Number(b.local), p_tipo: b.tipo, p_items: items, p_completo: b.tipo === "conteo" && !!b.completo,

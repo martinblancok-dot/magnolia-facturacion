@@ -2,6 +2,8 @@
 // Pantalla de caja. Funciona sin internet: el catálogo y las ventas se guardan en la compu
 // y las ventas se suben solas cuando vuelve la conexión.
 import Link from "next/link";
+import { ElegirColor } from "@/app/elegir-color";
+import type { VariantesCaja } from "@/lib/variantes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PedidosWeb } from "./pedidos-web";
 import { Miniatura } from "../miniatura";
@@ -49,6 +51,8 @@ interface Catalogo {
   version: string;
   promos?: Promo[];
   productos: ProductoCaja[];
+  /** Colores de cada producto (los que tienen colores no se venden sin elegir uno). */
+  variantes?: VariantesCaja;
   locales: { id: number; nombre: string }[];
   guardado: string;
 }
@@ -96,7 +100,7 @@ export function Caja() {
   const [renombrando, setRenombrando] = useState<string | null>(null);
   // Cambio: buscar la venta original y elegir qué devuelve
   type VentaCambio = { id: string; creada_en: string; medio_pago: string; medio_precio: MedioPago; vence: string; enPlazo: boolean;
-    items: { n: number; producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; devuelto: number; puede: number }[];
+    items: { n: number; producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; devuelto: number; puede: number; variante_id?: string | null; color?: string | null }[];
     cliente_cc?: { id: string; nombre: string } | null };
   const [cb, setCb] = useState<null | { codigo: string; cargando: boolean; error?: string; venta?: VentaCambio; cant: Record<number, number> }>(null);
   // Descuento manual
@@ -382,8 +386,17 @@ export function Caja() {
     setMarcado(resultado.exacto ? 0 : -1);
   }, [resultado]);
 
-  const sumar = (p: ProductoCaja) => {
-    setItems((it) => agregar(it, p, cantidadPedida));
+  // Producto con colores: primero se elige el color
+  const [eligiendo, setEligiendo] = useState<{ p: ProductoCaja; cantidad: number } | null>(null);
+  const sumar = (p: ProductoCaja, variante?: [string, string], cant = cantidadPedida) => {
+    const colores = catalogo?.variantes?.[p[0]];
+    if (colores?.length && !variante) {
+      setEligiendo({ p, cantidad: cant });
+      setBusqueda("");
+      return;
+    }
+    setEligiendo(null);
+    setItems((it) => agregar(it, p, cant, variante ?? null));
     setModoGc(false);
     setBusqueda("");
     setAviso(null);
@@ -398,6 +411,7 @@ export function Caja() {
     if (!catalogo) return { ok: false, texto: "Todavía se están cargando los productos." };
     const p = porCodigo(catalogo.productos, cod) ?? buscar(catalogo.productos, cod).exacto;
     if (!p) return { ok: false, texto: `No encontré el código ${cod}` };
+    if (catalogo.variantes?.[p[0]]?.length) setCamara(null); // hay que elegir el color: se cierra la cámara
     sumar(p);
     return { ok: true, texto: p[3] };
   };
@@ -507,6 +521,7 @@ export function Caja() {
     const v = cb.venta;
     const devoluciones = v.items.filter((i) => (cb.cant[i.n] ?? 0) > 0).map((i) => ({
       producto_id: i.producto_id, barcode: i.barcode, sku: i.sku, nombre: i.nombre, cantidad: cb.cant[i.n], precio: i.precio_unitario,
+      variante_id: i.variante_id ?? null, color: i.color ?? null,
     }));
     if (!devoluciones.length) return;
     if (v.cliente_cc && !soyDuenio) { setAviso({ ok: false, texto: `Esa venta fue a la cuenta corriente de ${v.cliente_cc.nombre}: el cambio lo hacen Martín o Sofi.` }); return; }
@@ -796,6 +811,10 @@ export function Caja() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-fondo">
       {zona}
+      {eligiendo && catalogo?.variantes?.[eligiendo.p[0]] && (
+        <ElegirColor nombre={eligiendo.p[3]} colores={catalogo.variantes[eligiendo.p[0]]} cantidad={eligiendo.cantidad}
+          onElegir={(v) => sumar(eligiendo.p, v, eligiendo.cantidad)} onCancelar={() => { setEligiendo(null); entrada.current?.focus(); }} />
+      )}
       {/* ---------- Barra superior ---------- */}
       <header className="flex items-center gap-2 border-b border-linea bg-white px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-5">
         <Link href="/ventas" aria-label="Menú" className="flex h-10 w-10 items-center justify-center rounded-lg text-suave hover:bg-marca-claro">

@@ -1,5 +1,6 @@
 // Lado servidor de la sincronización con Precios Deco.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { planVariantes, type VarianteExistente } from "@/lib/variantes";
 import { leerHojas, type ProductoImportado } from "../catalogo";
 import { compararCatalogo, compararCodigos, tokenCorrecto, type CodigoExistente, type ProductoSistema } from "../planilla";
 
@@ -35,6 +36,8 @@ export interface EstadoPlanilla {
   error?: string;
   /** Códigos de barras alternativos (columna "Barcode original"). */
   codigos?: { total: number; agregados: number; quitados: number; repetidos: { codigo: string; detalle: string }[]; error?: string };
+  /** Colores (columna "Colores"). */
+  colores?: { productos: number; nuevos: number; quitados: number; error?: string };
 }
 
 export async function guardarEstado(db: SupabaseClient, e: EstadoPlanilla) {
@@ -77,9 +80,10 @@ export async function sincronizarDesdePlanilla(db: SupabaseClient, hojas: { shee
     if (error) throw new Error(error.message);
   }
   const codigos = await sincronizarCodigos(db, leidas.productos, leidas.hojas);
+  const colores = await sincronizarColores(db, leidas.productos);
   const estado: EstadoPlanilla = {
     cuando: ahora, productos: leidas.productos.length, nuevos: c.nuevos.length, actualizados: c.cambios.length,
-    bajas: c.bajas.length, bajasFrenadas: c.bajasFrenadas, repetidos: leidas.conflictos.slice(0, 50), hojas: leidas.hojas, codigos,
+    bajas: c.bajas.length, bajasFrenadas: c.bajasFrenadas, repetidos: leidas.conflictos.slice(0, 50), hojas: leidas.hojas, codigos, colores,
   };
   await guardarEstado(db, estado);
   return estado;
@@ -123,4 +127,52 @@ async function sincronizarCodigos(db: SupabaseClient, planilla: ProductoImportad
   }
   const total = existentes.length - c.quitar.length + agregados;
   return { total, agregados, quitados: c.quitar.length, repetidos: repetidos.slice(0, 100) };
+}
+
+/** Crea, reactiva y desactiva los colores de cada producto según la columna "Colores". Nunca borra (queda el historial). */
+async function sincronizarColores(db: SupabaseClient, planilla: ProductoImportado[]): Promise<EstadoPlanilla["colores"]> {
+  const conColumna = planilla.filter((p) => p.colores !== undefined);
+  if (!conColumna.length) return undefined; // la planilla no tiene la columna: no se toca nada
+  const existentes: (VarianteExistente & { producto_id: string })[] = [];
+  for (let desde = 0; ; desde += 1000) {
+    const { data, error } = await db.from("producto_variantes").select("id, producto_id, color, sku_variante, activo, orden").order("id").range(desde, desde + 999);
+    if (error) {
+      const hay = conColumna.some((p) => p.colores?.length);
+      return hay ? { productos: 0, nuevos: 0, quitados: 0, error: "Falta correr la migración 0032_variantes_color.sql en Supabase." } : undefined;
+    }
+    existentes.push(...((data ?? []) as typeof existentes));
+    if (!data || data.length < 1000) break;
+  }
+  const porProducto = new Map<string, typeof existentes>();
+  for (const v of existentes) porProducto.set(v.producto_id, [...(porProducto.get(v.producto_id) ?? []), v]);
+  const productos = new Map((await todosLosProductos(db)).map((p) => [p.barcode, p]));
+
+  const crear: { producto_id: string; color: string; sku_variante: string; orden: number }[] = [];
+  const activar: string[] = [], desactivar: string[] = [], tocados = new Set<string>();
+  const orden: { id: string; orden: number }[] = [];
+  let conColores = 0;
+  for (const p of conColumna) {
+    const prod = productos.get(p.barcode);
+    if (!prod) continue;
+    const plan = planVariantes(prod.sku || prod.barcode, p.colores ?? [], porProducto.get(prod.id) ?? []);
+    if (p.colores?.length) conColores++;
+    crear.push(...plan.crear.map((c) => ({ producto_id: prod.id, ...c })));
+    activar.push(...plan.reactivar);
+    desactivar.push(...plan.desactivar);
+    const previos = new Map((porProducto.get(prod.id) ?? []).map((v) => [v.id, v]));
+    orden.push(...plan.orden.filter((o) => (previos.get(o.id) as { orden?: number } | undefined)?.orden !== o.orden));
+    if (plan.crear.length || plan.reactivar.length || plan.desactivar.length) tocados.add(prod.id);
+  }
+  const ahora = new Date().toISOString();
+  for (let i = 0; i < crear.length; i += 500) {
+    const { error } = await db.from("producto_variantes").insert(crear.slice(i, i + 500));
+    if (error) return { productos: conColores, nuevos: 0, quitados: 0, error: error.message };
+  }
+  for (let i = 0; i < activar.length; i += 300) await db.from("producto_variantes").update({ activo: true, actualizado_en: ahora }).in("id", activar.slice(i, i + 300));
+  for (let i = 0; i < desactivar.length; i += 300) await db.from("producto_variantes").update({ activo: false, actualizado_en: ahora }).in("id", desactivar.slice(i, i + 300));
+  for (const o of orden.slice(0, 2000)) await db.from("producto_variantes").update({ orden: o.orden }).eq("id", o.id);
+  // Que la caja baje el catálogo de nuevo
+  const ids = [...tocados];
+  for (let i = 0; i < ids.length; i += 300) await db.from("productos").update({ actualizado_en: ahora }).in("id", ids.slice(i, i + 300));
+  return { productos: conColores, nuevos: crear.length, quitados: desactivar.length };
 }

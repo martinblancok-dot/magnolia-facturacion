@@ -68,6 +68,9 @@ export interface ItemCarrito {
   efectivo: number;
   categoria?: string | null;
   proveedor?: string | null;
+  /** Color elegido (productos con colores). El nombre ya lo incluye: "Taza · Negro". */
+  variante_id?: string | null;
+  color?: string | null;
 }
 
 /** Promos y descuento manual que se aplican a la venta. */
@@ -149,10 +152,12 @@ export function buscar(catalogo: ProductoCaja[], texto: string, max = 30): { exa
   return { exacto, resultados };
 }
 
-export function agregar(items: ItemCarrito[], p: ProductoCaja, cantidad = 1): ItemCarrito[] {
-  const i = items.findIndex((x) => x.producto_id === p[0]);
+export function agregar(items: ItemCarrito[], p: ProductoCaja, cantidad = 1, variante?: [string, string] | null): ItemCarrito[] {
+  const vid = variante?.[0] ?? null;
+  const i = items.findIndex((x) => x.producto_id === p[0] && (x.variante_id ?? null) === vid);
   if (i >= 0) return items.map((x, j) => (j === i ? { ...x, cantidad: x.cantidad + cantidad } : x));
-  return [...items, { producto_id: p[0], barcode: p[1], sku: p[2], nombre: p[3], cantidad, lista: p[4], efectivo: p[5], categoria: p[6] ?? null, proveedor: p[7] ?? null }];
+  const color = variante ? { variante_id: variante[0], color: variante[1] } : {};
+  return [...items, { producto_id: p[0], barcode: p[1], sku: p[2], nombre: variante ? `${p[3]} · ${variante[1]}` : p[3], cantidad, lista: p[4], efectivo: p[5], categoria: p[6] ?? null, proveedor: p[7] ?? null, ...color }];
 }
 
 export interface VentaParaSubir {
@@ -165,7 +170,7 @@ export interface VentaParaSubir {
   total: number;
   total_lista: number;
   paga_con: number | null;
-  items: { producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; total: number; ajuste?: boolean; descuento_manual?: boolean }[];
+  items: { producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio_unitario: number; total: number; ajuste?: boolean; descuento_manual?: boolean; variante_id?: string | null; color?: string | null }[];
   /** Descuento manual aplicado (si lo pidió un colaborador, con su autorización). */
   descuento?: DescuentoManual | null;
   /** Cambio: venta original y crédito por lo que se devolvió. */
@@ -270,7 +275,7 @@ export function partesPago(v: { medio_pago: string; total: number | string; pago
 
 // ---------- Cambios y devoluciones ----------
 
-export interface Devolucion { producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio: number }
+export interface Devolucion { producto_id: string | null; barcode: string | null; sku: string | null; nombre: string; cantidad: number; precio: number; variante_id?: string | null; color?: string | null }
 export interface CambioEnCurso {
   venta_id: string;        // venta original
   codigo: string;
@@ -302,7 +307,7 @@ export function armarVentaCambio(
     lineas.push({ producto_id: null, barcode: null, sku: null, nombre: `Diferencia de precio pagada con ${nombreMedio(resto)}`, cantidad: 1, precio_unitario: r.ajuste, total: r.ajuste, ajuste: true });
   }
   for (const d of c.devoluciones) {
-    lineas.push({ producto_id: d.producto_id, barcode: d.barcode, sku: d.sku, nombre: `Devolución: ${d.nombre}`, cantidad: -d.cantidad, precio_unitario: d.precio, total: redondear(-d.cantidad * d.precio) });
+    lineas.push({ producto_id: d.producto_id, barcode: d.barcode, sku: d.sku, nombre: `Devolución: ${d.nombre}`, cantidad: -d.cantidad, precio_unitario: d.precio, total: redondear(-d.cantidad * d.precio), ...(d.variante_id ? { variante_id: d.variante_id, color: d.color ?? null } : {}) });
   }
   const medio: MedioPago = r.falta > 0 ? resto : "cambio";
   return {
@@ -323,7 +328,7 @@ export function armarVentaCambioCuenta(
   const base = armarVenta(nuevos, "cuenta", local, terminal, null, id, ahora, ext);
   const lineas = [...base.items];
   for (const d of c.devoluciones) {
-    lineas.push({ producto_id: d.producto_id, barcode: d.barcode, sku: d.sku, nombre: `Devolución: ${d.nombre}`, cantidad: -d.cantidad, precio_unitario: d.precio, total: redondear(-d.cantidad * d.precio) });
+    lineas.push({ producto_id: d.producto_id, barcode: d.barcode, sku: d.sku, nombre: `Devolución: ${d.nombre}`, cantidad: -d.cantidad, precio_unitario: d.precio, total: redondear(-d.cantidad * d.precio), ...(d.variante_id ? { variante_id: d.variante_id, color: d.color ?? null } : {}) });
   }
   return { ...base, items: lineas, medio_pago: "cuenta", total: redondear(base.total - credito), paga_con: null, cambio_de: c.venta_id, credito_cambio: credito, cliente_cc_id: cliente };
 }
@@ -352,7 +357,7 @@ export function armarVenta(
     items: [
       ...items.map((it) => {
         const pu = precioUnitario(it, medio);
-        return { producto_id: it.producto_id, barcode: it.barcode, sku: it.sku, nombre: it.nombre, cantidad: it.cantidad, precio_unitario: pu, total: redondear(pu * it.cantidad) };
+        return { producto_id: it.producto_id, barcode: it.barcode, sku: it.sku, nombre: it.nombre, cantidad: it.cantidad, precio_unitario: pu, total: redondear(pu * it.cantidad), ...(it.variante_id ? { variante_id: it.variante_id, color: it.color ?? null } : {}) };
       }),
       ...t.lineas.map((l) => ({ producto_id: null, barcode: null, sku: null, nombre: l.nombre, cantidad: 1, precio_unitario: -l.monto, total: -l.monto, ajuste: true, descuento_manual: l.manual || undefined })),
     ],

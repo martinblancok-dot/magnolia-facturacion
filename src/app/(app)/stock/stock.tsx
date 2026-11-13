@@ -5,15 +5,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buscar, porCodigo, type ProductoCaja } from "@/lib/caja";
 import { BotonCamara, EscanerCamara } from "@/app/escaner";
 import { guardar, leer } from "@/lib/caja-local";
+import { ElegirColor } from "@/app/elegir-color";
+import type { VariantesCaja } from "@/lib/variantes";
 
 type Modo = "ingreso" | "conteo" | "transferencia";
-interface Linea { id: string; sku: string; nombre: string; cantidad: number }
+interface Linea { id: string; sku: string; nombre: string; cantidad: number; variante_id?: string | null; color?: string | null }
+const claveLinea = (l: { id: string; variante_id?: string | null }) => `${l.id}|${l.variante_id ?? ""}`;
 
 const LOCALES = [{ id: 1, nombre: "Magnolia Home" }, { id: 2, nombre: "Magnolia Beauty" }];
 const claveBorrador = (modo: Modo, local: number) => `magnolia-stock-${modo}-${local}`;
 
 export function Stock({ duenio = false }: { duenio?: boolean }) {
   const [catalogo, setCatalogo] = useState<ProductoCaja[] | null>(null);
+  const [variantes, setVariantes] = useState<VariantesCaja>({});
+  const [eligiendo, setEligiendo] = useState<{ p: ProductoCaja; n: number } | null>(null);
+  const [sistemaColor, setSistemaColor] = useState<Record<string, number>>({});
   const [local, setLocal] = useState<number>(1);
   const [modo, setModo] = useState<Modo>("ingreso");
   const [lineas, setLineas] = useState<Linea[]>([]);
@@ -41,10 +47,10 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
       if (d === 1 || d === 2) setLocal(d);
     } catch {}
     (async () => {
-      try { const c = await leer<{ productos: ProductoCaja[] }>("catalogo"); if (c) setCatalogo(c.productos); } catch {}
+      try { const c = await leer<{ productos: ProductoCaja[]; variantes?: VariantesCaja }>("catalogo"); if (c) { setCatalogo(c.productos); setVariantes(c.variantes ?? {}); } } catch {}
       try {
         const r = await fetch("/api/catalogo", { cache: "no-store" });
-        if (r.ok) { const d = await r.json(); setCatalogo(d.productos); await guardar("catalogo", { ...d, guardado: new Date().toISOString() }); }
+        if (r.ok) { const d = await r.json(); setCatalogo(d.productos); setVariantes(d.variantes ?? {}); await guardar("catalogo", { ...d, guardado: new Date().toISOString() }); }
       } catch {}
     })();
   }, []);
@@ -72,7 +78,9 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
   const traerSistema = useCallback(async () => {
     try {
       const r = await fetch(`/api/stock?local=${local}`, { cache: "no-store" });
-      setSistema(r.ok ? (await r.json()).stock : null);
+      const d = r.ok ? await r.json() : null;
+      setSistema(d?.stock ?? null);
+      setSistemaColor(d?.colores ?? {});
     } catch { setSistema(null); }
   }, [local]);
   // Trae del servidor el stock del local elegido (el estado se actualiza al llegar la respuesta)
@@ -92,21 +100,26 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
     if (!catalogo) return { ok: false, texto: "Todavía se están cargando los productos." };
     const p = porCodigo(catalogo, cod) ?? buscar(catalogo, cod).exacto;
     if (!p) { setDesconocidos((d) => (d.includes(cod) ? d : [cod, ...d])); return { ok: false, texto: `${cod} no está en el catálogo (quedó anotado)` }; }
+    if (variantes[p[0]]?.length) setCamara(false); // hay que elegir el color
     sumar(p, 1);
     return { ok: true, texto: p[3] };
   };
 
-  const sumar = (p: ProductoCaja, n = cantidadPedida) => {
+  const sumar = (p: ProductoCaja, n = cantidadPedida, variante?: [string, string]) => {
+    // Producto con colores: se pide el color (las cantidades van por color)
+    if (variantes[p[0]]?.length && !variante) { setEligiendo({ p, n }); setBusqueda(""); return; }
+    setEligiendo(null);
+    const vid = variante?.[0] ?? null;
     setLineas((ls) => {
-      const i = ls.findIndex((l) => l.id === p[0]);
+      const i = ls.findIndex((l) => l.id === p[0] && (l.variante_id ?? null) === vid);
       if (i >= 0) {
         const copia = [...ls];
         copia[i] = { ...copia[i], cantidad: copia[i].cantidad + n };
         return [copia[i], ...copia.filter((_, j) => j !== i)]; // el último escaneado arriba
       }
-      return [{ id: p[0], sku: p[2], nombre: p[3], cantidad: n }, ...ls];
+      return [{ id: p[0], sku: p[2], nombre: p[3], cantidad: n, ...(variante ? { variante_id: variante[0], color: variante[1] } : {}) }, ...ls];
     });
-    setUltimo(`${n > 1 ? `${n} × ` : ""}${p[3]}`);
+    setUltimo(`${n > 1 ? `${n} × ` : ""}${p[3]}${variante ? ` · ${variante[1]}` : ""}`);
     setBusqueda("");
     entrada.current?.focus();
   };
@@ -128,14 +141,14 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
     setEnviando(true);
     setAviso(null);
     try {
-      const items = lineas.map((l) => ({ producto_id: l.id, cantidad: l.cantidad }));
+      const items = lineas.map((l) => ({ producto_id: l.id, cantidad: l.cantidad, ...(l.variante_id ? { variante_id: l.variante_id } : {}) }));
       const r = modo === "transferencia"
         ? await fetch("/api/stock/transferir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desde: local, hasta: otro.id, nota, items }) })
         : await fetch("/api/stock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ local, tipo: modo, completo, nota, items }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "error");
       setAviso({ ok: true, texto: modo === "transferencia" ? `Listo: pasaron ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${LOCALES.find((l) => l.id === local)?.nombre} a ${otro.nombre}.` : modo === "ingreso" ? `Mercadería cargada: ${lineas.reduce((s, l) => s + l.cantidad, 0)} unidades de ${lineas.length} productos.` : `Control aplicado: ${d.cambiados} productos ajustados.` });
-      setCargaHecha(modo === "ingreso" ? lineas.map((l) => ({ id: l.id, cantidad: l.cantidad })) : null);
+      setCargaHecha(modo === "ingreso" ? [...lineas.reduce((m, l) => m.set(l.id, (m.get(l.id) ?? 0) + l.cantidad), new Map<string, number>())].map(([id, cantidad]) => ({ id, cantidad })) : null);
       setLineas([]); setDesconocidos([]); setNota(""); setCompleto(false);
       traerSistema();
     } catch (e) {
@@ -148,10 +161,17 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
 
   const otro = LOCALES.find((l) => l.id !== local)!;
   const unidades = lineas.reduce((s, l) => s + l.cantidad, 0);
-  const diferencias = modo === "conteo" && sistema ? lineas.filter((l) => (sistema[l.id] ?? 0) !== l.cantidad).length : 0;
+  const enSistema = (l: Linea) => (l.variante_id ? sistemaColor[l.variante_id] ?? 0 : sistema?.[l.id] ?? 0);
+  const diferencias = modo === "conteo" && sistema ? lineas.filter((l) => enSistema(l) !== l.cantidad).length : 0;
+  // Productos con colores escaneados sin color (borradores viejos): hay que sacarlos y volver a escanearlos
+  const sinColor = lineas.filter((l) => !l.variante_id && variantes[l.id]?.length);
 
   return (
     <div className="space-y-5">
+      {eligiendo && variantes[eligiendo.p[0]] && (
+        <ElegirColor nombre={eligiendo.p[3]} colores={variantes[eligiendo.p[0]]} cantidad={eligiendo.n}
+          onElegir={(v) => sumar(eligiendo.p, eligiendo.n, v)} onCancelar={() => { setEligiendo(null); entrada.current?.focus(); }} />
+      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-semibold">Stock</h1>
@@ -216,12 +236,12 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
         ) : (
           <ul className="divide-y divide-linea">
             {lineas.map((l) => {
-              const antes = sistema?.[l.id] ?? 0;
+              const antes = enSistema(l);
               const dif = l.cantidad - antes;
               return (
-                <li key={l.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
+                <li key={claveLinea(l)} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate">{l.nombre}</span>
+                    <span className="block truncate">{l.nombre}{l.color && <b className="ml-1.5 rounded-full bg-marca-claro px-2 py-0.5 text-xs text-marca">{l.color}</b>}</span>
                     <span className="text-xs text-suave">
                       {l.sku} · en sistema: {sistema ? antes : "…"}
                       {modo === "ingreso" && sistema ? ` → quedará ${antes + l.cantidad}` : ""}
@@ -231,8 +251,8 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
                     </span>
                   </span>
                   <input type="number" min={0} value={l.cantidad} className="campo !w-24 text-center"
-                    onChange={(e) => setLineas((ls) => ls.map((x) => (x.id === l.id ? { ...x, cantidad: Math.max(0, Number(e.target.value) || 0) } : x)))} />
-                  <button aria-label="Quitar" className="px-2 text-xl text-suave hover:text-red-700" onClick={() => setLineas((ls) => ls.filter((x) => x.id !== l.id))}>×</button>
+                    onChange={(e) => setLineas((ls) => ls.map((x) => (claveLinea(x) === claveLinea(l) ? { ...x, cantidad: Math.max(0, Number(e.target.value) || 0) } : x)))} />
+                  <button aria-label="Quitar" className="px-2 text-xl text-suave hover:text-red-700" onClick={() => setLineas((ls) => ls.filter((x) => claveLinea(x) !== claveLinea(l)))}>×</button>
                 </li>
               );
             })}
@@ -266,7 +286,8 @@ export function Stock({ duenio = false }: { duenio?: boolean }) {
           {lineas.length} productos · {unidades} unidades{modo === "conteo" && sistema ? ` · ${diferencias} con diferencia` : ""}
         </p>
         <div className="flex flex-wrap gap-3">
-          <button className="boton" disabled={lineas.length === 0 || enviando} onClick={confirmar}>
+          {sinColor.length > 0 && <p className="w-full text-sm text-red-700">Falta el color de: {sinColor.map((l) => l.nombre).join(", ")}. Quitalos y escanealos de nuevo.</p>}
+          <button className="boton" disabled={lineas.length === 0 || enviando || sinColor.length > 0} onClick={confirmar}>
             {enviando ? "Guardando…" : modo === "transferencia" ? `Pasar a ${otro.nombre}` : modo === "ingreso" ? "Confirmar carga" : completo ? "Aplicar inventario completo" : "Aplicar control"}
           </button>
           {lineas.length > 0 && <button className="text-sm text-suave underline" onClick={() => { setLineas([]); setDesconocidos([]); }}>Empezar de nuevo</button>}

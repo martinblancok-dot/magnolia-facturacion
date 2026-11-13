@@ -2,6 +2,7 @@
 // Cada pestaña de proveedor tiene: Articulo Interno (SKU), Producto, Precio unitario (costo),
 // Precio sugerido (lista), precio descuento (efectivo), Barcode, Categoria, Proveedor.
 import readXlsxFile from "read-excel-file/node";
+import { separarColores } from "./variantes";
 import { numeroAR } from "./mis-comprobantes";
 
 export interface ProductoImportado {
@@ -16,6 +17,8 @@ export interface ProductoImportado {
   hoja: string;
   /** Códigos alternativos (columna "Barcode original" de la planilla). */
   codigos?: string[];
+  /** Colores (columna "Colores" de la planilla). Sin la columna: undefined (no se tocan los colores). */
+  colores?: string[];
 }
 
 export interface Conflicto {
@@ -56,6 +59,7 @@ export function leerHojas(hojas: { sheet: string; data: unknown[][] }[]) {
       barcode: col("barcode"),
       categoria: col("categoria"),
       proveedor: col("proveedor"),
+      colores: col("colores") >= 0 ? col("colores") : col("color"),
     };
     // Columnas con códigos alternativos: "Barcode original (completo)", "Código original", etc.
     const colsCodigos = titulos.map((t, i) => (/^(barcode|codigo|código|cod\.?) (original|alternativo|de fabrica|de fábrica)/.test(t) ? i : -1)).filter((i) => i >= 0);
@@ -77,6 +81,7 @@ export function leerHojas(hojas: { sheet: string; data: unknown[][] }[]) {
         costo: c.costo >= 0 && Number.isFinite(plata(f[c.costo])) ? plata(f[c.costo]) : null,
         precio_lista: lista, precio_efectivo: efectivo, hoja: sheet,
         codigos: [...new Set(colsCodigos.flatMap((i) => separarCodigos(f[i])).filter((x) => x !== barcode))],
+        ...(c.colores >= 0 ? { colores: separarColores(f[c.colores]) } : {}),
       };
       const previo = productos.get(barcode);
       if (previo) {

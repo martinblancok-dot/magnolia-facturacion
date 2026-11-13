@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import type { ProductoCaja } from "@/lib/caja";
 import { rutaCorta } from "@/lib/fotos";
+import type { VariantesCaja } from "@/lib/variantes";
 import type { Promo } from "@/lib/promos";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { usuarioDeLaSesion } from "@/lib/supabase/sesion";
@@ -25,7 +26,7 @@ export async function GET(req: Request) {
     .filter((p) => (!p.desde || p.desde <= hoy) && (!p.hasta || p.hasta >= hoy))
     .map((p) => ({ id: p.id, nombre: p.nombre, tipo: p.tipo, pct: Number(p.pct), n: p.n, m: p.m, alcance: p.alcance, valores: p.valores ?? [], mismo_producto: p.mismo_producto }));
   // Versión = último cambio de productos + las promos de hoy (si cambia algo, la caja baja todo de nuevo)
-  const version = `v4|${ultimo?.actualizado_en ?? ""}|${firmaCodigos}|${createHash("md5").update(JSON.stringify(promos)).digest("hex").slice(0, 10)}`;
+  const version = `v5|${ultimo?.actualizado_en ?? ""}|${firmaCodigos}|${createHash("md5").update(JSON.stringify(promos)).digest("hex").slice(0, 10)}`;
   const tiene = new URL(req.url).searchParams.get("version");
   if (tiene && version && tiene === version) return NextResponse.json({ sinCambios: true, version });
   const alternativos = new Map<string, string[]>();
@@ -57,6 +58,15 @@ export async function GET(req: Request) {
     }
     if (data.length < 1000) break;
   }
+  // Colores de cada producto (si todavía no está la migración 0032, no hay)
+  const variantes: VariantesCaja = {};
+  for (let i = 0; ; i += 1000) {
+    const { data, error } = await db.from("producto_variantes").select("id, producto_id, color, orden").eq("activo", true)
+      .order("producto_id").order("orden").order("color").range(i, i + 999);
+    if (error) break;
+    for (const v of data ?? []) (variantes[v.producto_id] ??= []).push([v.id, v.color]);
+    if (!data || data.length < 1000) break;
+  }
   const { data: locales } = await db.from("locales").select("id, nombre").order("id");
-  return NextResponse.json({ version, productos, promos, locales: locales ?? [], usuario: u.email });
+  return NextResponse.json({ version, productos, variantes, promos, locales: locales ?? [], usuario: u.email });
 }

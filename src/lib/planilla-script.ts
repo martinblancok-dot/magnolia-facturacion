@@ -88,6 +88,7 @@ function leerPestanas_() {
     var ultimaFila = hoja.getLastRow();
     if (ultimaFila < 2) return;
     var ancho = Math.max.apply(null, Object.keys(c).map(function (k) { return c[k]; }).filter(function (n) { return n <= 12; }));
+    if (c['colores']) ancho = Math.max(ancho, c['colores']); // la columna "Colores" puede estar más a la derecha
     var datos = hoja.getRange(1, 1, ultimaFila, ancho).getValues();
     var colProducto = c['producto'] - 1;
     var filas = [datos[0]].concat(datos.slice(1).filter(function (f) { return String(f[colProducto]).trim() !== ''; }));
