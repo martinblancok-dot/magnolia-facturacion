@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { esFotoProducto, planFotos, type ProductoIndice } from "@/lib/fotos";
+import { colorDeArchivo, esFotoProducto, planFotos, type ProductoIndice } from "@/lib/fotos";
 
 const prod = (id: string, sku: string, colores: string[] = []): ProductoIndice => ({
   id, sku, barcode: `B${id}`, nombre: `Prod ${sku}`,
@@ -61,5 +61,34 @@ describe("fotos desde la carpeta FINALES", () => {
     const { plan } = planFotos(["AA1-x-1.jpg"], [prod("a", "AA1"), prod("b", "AA1")]);
     expect(plan[0].estado).toBe("varios");
     expect(plan[0].productos).toHaveLength(2);
+  });
+
+  it("ejemplos reales: comienzo del color, color entero o una palabra del color", () => {
+    const colores = (...c: string[]) => c.map((color) => ({ color }));
+    const za = colores("Rosa tornasolado", "Azul tornasolado", "Aqua tornasolado", "Transparente");
+    const br = colores("Ámbar", "Transparente rayada", "Transparente tallada");
+    const pl = colores("Margaritas", "Flores verdes");
+    expect(colorDeArchivo("botella-corcho-rosa", za)?.color).toBe("Rosa tornasolado");
+    expect(colorDeArchivo("botella-corcho-aqua", za)?.color).toBe("Aqua tornasolado");
+    expect(colorDeArchivo("botella-corcho-transparente", za)?.color).toBe("Transparente");
+    expect(colorDeArchivo("botella-flores-verdes", pl)?.color).toBe("Flores verdes");
+    expect(colorDeArchivo("botella-flores-margaritas", pl)?.color).toBe("Margaritas");
+    expect(colorDeArchivo("compotera-labrada-ambar", br)?.color).toBe("Ámbar");
+    expect(colorDeArchivo("compotera-labrada-rayada", br)?.color).toBe("Transparente rayada");
+    expect(colorDeArchivo("compotera-labrada-tallada", br)?.color).toBe("Transparente tallada");
+    expect(colorDeArchivo("compotera-labrada-violeta", br)).toBeNull();
+  });
+
+  it("más palabras gana; a igualdad, el que coincide con el comienzo; si empatan del todo, no se adivina", () => {
+    const c = [{ color: "Verde" }, { color: "Verde agua" }];
+    expect(colorDeArchivo("jarra-verde-agua", c)?.color).toBe("Verde agua");
+    expect(colorDeArchivo("jarra-verde", c)?.color).toBe("Verde");
+    expect(colorDeArchivo("vaso-transparente", [{ color: "Transparente rayada" }, { color: "Transparente tallada" }])).toBeNull();
+  });
+
+  it("todo el camino, con guiones y tildes", () => {
+    const { plan } = planFotos(["ZA5977-botella-corcho-rosa-1.jpg", "ZA5977-botella-corcho-aqua-1.jpg"],
+      [prod("z", "ZA5977", ["Rosa tornasolado", "Aqua tornasolado"])]);
+    expect(plan.map((p) => p.color?.color)).toEqual(["Aqua tornasolado", "Rosa tornasolado"]);
   });
 });

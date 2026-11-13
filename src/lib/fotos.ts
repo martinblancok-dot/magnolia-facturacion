@@ -59,6 +59,41 @@ const skuPlano = (sku: string) => sku.trim().toLowerCase().replace(/\//g, "-");
 /** ¿Es la foto del producto solo? (termina en -1.jpg / .jpeg / .png / .webp) */
 export const esFotoProducto = (archivo: string) => /-1\.(jpe?g|png|webp)$/i.test(archivo.split(/[\\/]/).pop() ?? "");
 
+/** Palabras normalizadas: minúsculas, sin tildes; guiones y espacios separan igual. */
+const palabras = (s: string) => plano(s).split("-").filter(Boolean);
+
+/**
+ * Qué tan bien una parte del nombre del archivo corresponde a un color. 0 = no corresponde.
+ * Vale si palabras seguidas del archivo coinciden con palabras seguidas del color, por ejemplo:
+ *   "rosa" → "Rosa tornasolado" (comienzo del color), "flores-verdes" → "Flores verdes" (el color entero),
+ *   "rayada" → "Transparente rayada" (una palabra del color).
+ * Puntaje: más palabras coincidentes gana; a igual cantidad, gana si coincide con el comienzo del color
+ * y después si cubre el color entero.
+ */
+export function puntajeColor(restoArchivo: string, color: string): number {
+  const a = palabras(restoArchivo), c = palabras(color);
+  if (!a.length || !c.length) return 0;
+  let mejor = 0;
+  for (let i = 0; i < a.length; i++) {
+    for (let j = 0; j < c.length; j++) {
+      let n = 0;
+      while (i + n < a.length && j + n < c.length && a[i + n] === c[j + n]) n++;
+      if (!n) continue;
+      const p = n * 100 + (j === 0 ? 10 : 0) + (j === 0 && n === c.length ? 5 : 0);
+      if (p > mejor) mejor = p;
+    }
+  }
+  return mejor;
+}
+
+/** El color que mejor corresponde al nombre del archivo; null si ninguno o si dos empatan (no se adivina). */
+export function colorDeArchivo<C extends { color: string }>(restoArchivo: string, colores: C[]): C | null {
+  const puntajes = colores.map((c) => ({ c, p: puntajeColor(restoArchivo, c.color) })).filter((x) => x.p > 0).sort((x, y) => y.p - x.p);
+  if (!puntajes.length) return null;
+  if (puntajes[1] && puntajes[1].p === puntajes[0].p) return null; // empate: mejor que lo elijas vos
+  return puntajes[0].c;
+}
+
 export function planFotos(archivos: string[], productos: ProductoIndice[]): { plan: FotoPlan[]; ignoradas: string[] } {
   const ignoradas: string[] = [];
   const porSku = new Map<string, ProductoIndice[]>();
@@ -74,7 +109,7 @@ export function planFotos(archivos: string[], productos: ProductoIndice[]): { pl
     if (!esFotoProducto(a)) { ignoradas.push(a); continue; }
     const nombre = codigoDeArchivo(a).toLowerCase();
     const sku = skus.find((s) => nombre === s || nombre.startsWith(`${s}-`)) ?? null;
-    leidas.push({ archivo: a, sku, resto: sku ? plano(nombre.slice(sku.length)) : "" });
+    leidas.push({ archivo: a, sku, resto: sku ? plano(nombre.slice(sku.length)).replace(/(^|-)1$/, "") : "" /* lo que está entre el SKU y "-1" */ });
   }
   leidas.sort((x, y) => codigoDeArchivo(x.archivo).localeCompare(codigoDeArchivo(y.archivo)));
 
@@ -87,10 +122,7 @@ export function planFotos(archivos: string[], productos: ProductoIndice[]): { pl
     yaPrincipal.add(l.sku);
     if (lista.length > 1) { plan.push({ archivo: l.archivo, estado: "varios", productos: lista, principal: true }); continue; }
     const p = lista[0];
-    // Color: el más largo cuyo nombre aparece entero en el archivo ("verde-agua" gana a "verde")
-    const texto = `-${l.resto}-`;
-    const color = [...p.colores].sort((a, b) => plano(b.color).length - plano(a.color).length)
-      .find((c) => plano(c.color) && texto.includes(`-${plano(c.color)}-`)) ?? null;
+    const color = colorDeArchivo(l.resto, p.colores);
     plan.push({ archivo: l.archivo, estado: "ok", productos: [p], principal, color, sinColor: !color && p.colores.length > 0 });
   }
   return { plan, ignoradas };
