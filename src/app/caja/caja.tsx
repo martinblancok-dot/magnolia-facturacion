@@ -398,6 +398,14 @@ export function Caja() {
     setMarcado(resultado.exacto ? 0 : -1);
   }, [resultado]);
 
+  // Foto de cada línea del carrito: la del color si tiene, si no la del producto (del catálogo guardado: sirve sin internet)
+  const fotos = useMemo(() => new Map((catalogo?.productos ?? []).filter((p) => p[9]).map((p) => [p[0], p[9] as string])), [catalogo]);
+  const fotoDe = (productoId: string | null, varianteId?: string | null) => {
+    if (!productoId) return null;
+    const color = varianteId ? catalogo?.variantes?.[productoId]?.find((v) => v[0] === varianteId)?.[2] : undefined;
+    return color ?? fotos.get(productoId) ?? null;
+  };
+
   // Producto con colores: primero se elige el color
   const [eligiendo, setEligiendo] = useState<{ p: ProductoCaja; cantidad: number } | null>(null);
   const sumar = (p: ProductoCaja, variante?: ColorCaja, cant = cantidadPedida) => {
@@ -1055,9 +1063,12 @@ export function Caja() {
                   {cambio && items.length === 0 && <li className="px-4 py-4 text-sm text-suave">{cambio.cliente_cc ? "Escaneá lo que se lleva en cambio. Si no se lleva nada, lo devuelto se descuenta de su cuenta." : "Escaneá lo que se lleva en cambio. Si no se lleva nada, cobrá así y el saldo a favor queda en una gift card."}</li>}
                   {items.map((it, i) => (
                     <li key={`${it.producto_id ?? "v"}-${i}`} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:grid sm:grid-cols-[minmax(0,1fr)_120px_110px_36px]">
-                      <span className="min-w-0 basis-full sm:basis-auto">
-                        <span className="block font-medium sm:truncate">{it.nombre}</span>
-                        <span className="text-xs text-suave">{it.sku ?? "Varios"} · {pesos(precioUnitario(it, medioPrecio))} c/u</span>
+                      <span className="flex min-w-0 basis-full items-center gap-3 sm:basis-auto">
+                        <Miniatura ruta={fotoDe(it.producto_id, it.variante_id)} tam={44} />
+                        <span className="min-w-0">
+                          <span className="block font-medium sm:truncate">{it.nombre}</span>
+                          <span className="text-xs text-suave">{it.sku ?? "Varios"} · {pesos(precioUnitario(it, medioPrecio))} c/u</span>
+                        </span>
                       </span>
                       <span className="flex items-center gap-1 sm:justify-center">
                         <button aria-label="Uno menos" className="flex h-9 w-9 items-center justify-center rounded-lg border border-linea text-lg hover:border-marca"
