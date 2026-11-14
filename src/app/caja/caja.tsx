@@ -327,16 +327,26 @@ export function Caja() {
     setTimeout(() => entrada.current?.focus(), 50);
   };
 
+  // Un solo clic: la ventana se cierra al instante y un segundo clic no anota otro movimiento
+  const anotandoRef = useRef(false);
   const registrarMovimiento = async (tipo: "retiro" | "gasto" | "ingreso", monto: number, motivo: string, constancia: boolean) => {
-    if (!turno || !(monto > 0)) return;
-    const id = crypto.randomUUID();
-    const creado_en = new Date().toISOString();
-    await encolar({ id, clase: "movimiento", datos: { id, turno_id: turno.id, tipo, monto, motivo, creado_en } });
-    try { localStorage.setItem("magnolia-constancia", constancia ? "1" : "0"); } catch {}
-    if (constancia) imprimir({ id, local_id: turno.local_id, creada_en: creado_en, medio: "efectivo", total: monto, items: [], movimiento: { tipo, motivo, registro: miNombre } }, "constancia");
+    if (!turno || !(monto > 0) || anotandoRef.current) return;
+    anotandoRef.current = true;
     setMovForm(false);
-    setAviso({ ok: true, texto: `${tipo === "retiro" ? "Retiro" : tipo === "gasto" ? "Gasto" : "Ingreso"} de ${pesos(monto)} anotado.` });
-    subir();
+    const nombre = tipo === "retiro" ? "Retiro" : tipo === "gasto" ? "Gasto" : "Ingreso";
+    try {
+      const id = crypto.randomUUID();
+      const creado_en = new Date().toISOString();
+      await encolar({ id, clase: "movimiento", datos: { id, turno_id: turno.id, tipo, monto, motivo, creado_en } });
+      try { localStorage.setItem("magnolia-constancia", constancia ? "1" : "0"); } catch {}
+      setAviso({ ok: true, texto: `${nombre} de ${pesos(monto)} anotado.${constancia ? " Si la constancia no sale, NO lo vuelvas a cargar: reimprimila o avisá." : ""}` });
+      if (constancia) {
+        try { imprimir({ id, local_id: turno.local_id, creada_en: creado_en, medio: "efectivo", total: monto, items: [], movimiento: { tipo, motivo, registro: miNombre } }, "constancia"); } catch {}
+      }
+      subir();
+    } finally {
+      setTimeout(() => { anotandoRef.current = false; }, 1500);
+    }
   };
 
   // ---- Gift card: buscarla en el servidor (hace falta internet para ver el saldo)

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { AnularMovimiento } from "./anular-movimiento";
 import { Imprimir } from "./imprimir";
 import { MEDIOS } from "@/lib/caja";
 import { fechaCorta, hora, pesos } from "@/lib/formato";
@@ -81,17 +82,27 @@ export default async function ReporteCierre({ params }: { params: Promise<{ id: 
           <div className="rounded-xl border border-linea">
             <p className="border-b border-linea px-3 py-2 text-sm font-semibold">Retiros, gastos e ingresos del turno</p>
             <ul className="divide-y divide-linea text-sm">
-              {c.movimientos.map((m, i) => (
-                <li key={i} className="flex items-start justify-between gap-3 px-3 py-2">
-                  <span><b>{({ retiro: "Retiro", gasto: "Gasto", ingreso: "Ingreso" } as Record<string, string>)[m.tipo] ?? m.tipo}</b> · {hora(m.creado_en)}
-                    <span className="block text-suave">{m.motivo || "Sin detalle"}</span></span>
-                  <b className={`shrink-0 tabular-nums ${m.tipo === "ingreso" ? "text-green-800" : ""}`}>{m.tipo === "ingreso" ? "+" : "−"}{pesos(Number(m.monto))}</b>
-                </li>
-              ))}
+              {c.movimientos.map((m, i) => {
+                const nombreTipo = ({ retiro: "Retiro", gasto: "Gasto", ingreso: "Ingreso" } as Record<string, string>)[m.tipo] ?? m.tipo;
+                return (
+                  <li key={m.id ?? i} className={`flex items-start justify-between gap-3 px-3 py-2 ${m.anulado ? "text-suave" : ""}`}>
+                    <span className="min-w-0 flex-1"><b className={m.anulado ? "line-through" : ""}>{nombreTipo}</b> · {hora(m.creado_en)}
+                      <span className={`block ${m.anulado ? "line-through" : "text-suave"}`}>{m.motivo || "Sin detalle"}</span>
+                      {m.anulado ? (
+                        <span className="block text-xs text-red-700">Anulado{m.anulado_en ? ` el ${fechaCorta(m.anulado_en)} ${hora(m.anulado_en)}` : ""}{m.motivo_anulacion ? `: ${m.motivo_anulacion}` : ""}</span>
+                      ) : rol === "duenio" && m.id ? <AnularMovimiento id={m.id} texto={`el ${nombreTipo.toLowerCase()} de ${pesos(Number(m.monto))}`} /> : null}
+                    </span>
+                    <b className={`shrink-0 tabular-nums ${m.anulado ? "line-through" : m.tipo === "ingreso" ? "text-green-800" : ""}`}>{m.tipo === "ingreso" ? "+" : "−"}{pesos(Number(m.monto))}</b>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>)}
         {t.notas && <p className="mt-2 text-sm">Notas: {t.notas}</p>}
+        {t.corregido_en && (
+          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Este cierre se corrigió el {fechaCorta(t.corregido_en)} por un movimiento anulado: el efectivo esperado y la diferencia ya están recalculados.</p>
+        )}
       </section>
 
       <section className="tarjeta">

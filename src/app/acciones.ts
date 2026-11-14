@@ -16,7 +16,7 @@ import { cifrar, descifrar } from "@/lib/secretos";
 import { almacenSupabase, clienteServidor, conciliarUsuario, guardarCobros, traerEmisor } from "@/lib/supabase/almacen";
 import { numeroWhatsapp } from "@/lib/resumen-cierre";
 import { enviarMail, leerConfigAviso } from "@/lib/supabase/aviso-cierre";
-import { confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
+import { calcularCierre, confirmarTransferenciasConCaja } from "@/lib/supabase/turnos";
 import { anularPagoCC, registrarPagoCC, saldosCC } from "@/lib/supabase/cuentas";
 import { URL_SISTEMA, borrarCredencialesTN, leerCredencialesTN } from "@/lib/tiendanube";
 import { sincronizarTienda } from "@/lib/tiendanube-sync";
@@ -912,4 +912,35 @@ export async function pedirColoresPlanilla(): Promise<Mensaje> {
   const { error } = await clienteServidor().from("ajustes").upsert({ clave: "planilla_pedido_colores", valor: new Date().toISOString(), actualizado_en: new Date().toISOString() });
   if (error) return { ok: false, texto: error.message };
   return { ok: true, texto: "Pedido enviado: la planilla actualiza los colores en menos de un minuto. Refrescá esta página para ver el resultado. (Si no pasa nada, en la planilla usá Magnolia → Actualizar colores ahora: la primera vez activa este botón.)" };
+}
+
+// ---------- Anular un retiro, gasto o ingreso de caja (solo dueños) ----------
+
+/** No borra el movimiento: lo deja anulado (tachado) y, si la caja ya estaba cerrada, recalcula el cierre. */
+export async function anularMovimientoCaja(id: string, motivo: string): Promise<Mensaje> {
+  const u = await soloDuenio();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, texto: "Movimiento inválido." };
+  const db = clienteServidor();
+  const ahora = new Date().toISOString();
+  const { data, error } = await db.from("caja_movimientos")
+    .update({ anulado: true, anulado_en: ahora, anulado_por: u.id, motivo_anulacion: motivo.trim().slice(0, 200) || null })
+    .eq("id", id).eq("anulado", false).select("turno_id");
+  if (error) return { ok: false, texto: /anulado/.test(error.message) ? "Falta correr la migración 0035_anular_movimientos.sql en Supabase." : error.message };
+  if (!data?.length) return { ok: false, texto: "Ese movimiento ya estaba anulado." };
+  const turnoId = data[0].turno_id as string;
+  // Caja cerrada: el efectivo esperado y la diferencia se recalculan sin ese movimiento
+  const c = await calcularCierre(db, turnoId, false);
+  if (c?.turno.cerrada_en) {
+    const contado = Number(c.turno.efectivo_contado ?? 0);
+    const anterior = (c.turno.resumen ?? {}) as Record<string, unknown>;
+    await db.from("turnos_caja").update({
+      efectivo_esperado: c.resumen.efectivoEsperado,
+      diferencia: Math.round((contado - c.resumen.efectivoEsperado) * 100) / 100,
+      resumen: { ...anterior, ...c.resumen },
+      corregido_en: ahora,
+    }).eq("id", turnoId);
+  }
+  revalidatePath(`/cierres/${turnoId}`);
+  revalidatePath("/cierres");
+  return { ok: true, texto: c?.turno.cerrada_en ? "Anulado. El cierre se recalculó." : "Anulado." };
 }
