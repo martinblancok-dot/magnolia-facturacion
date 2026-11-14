@@ -8,7 +8,12 @@ import { guardarCobros, traerEmisores } from "./almacen";
 export interface Turno {
   id: string; local_id: number; terminal: string | null; abierta_en: string; fondo_inicial: number;
   cerrada_en: string | null; efectivo_esperado: number | null; efectivo_contado: number | null; diferencia: number | null;
-  deja_en_caja: number | null; billetes: unknown; resumen: unknown; notas: string | null;
+  deja_en_caja: number | null; billetes: unknown; resumen: unknown; notas: string | null; corregido_en?: string | null;
+}
+
+export interface MovimientoTurno {
+  id: string; tipo: "retiro" | "gasto" | "ingreso"; monto: number; motivo: string | null; creado_en: string;
+  anulado?: boolean; anulado_en?: string | null; motivo_anulacion?: string | null;
 }
 
 const minutos = (iso: string, m: number) => new Date(Date.parse(iso) + m * 60_000).toISOString();
@@ -36,7 +41,7 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
 
   const [{ data: ventas }, { data: movs }, { data: delPeriodo }, { data: cobros }, { data: items }] = await Promise.all([
     db.from("ventas").select("*").eq("turno_id", t.id).order("creada_en"),
-    db.from("caja_movimientos").select("tipo, monto, motivo, creado_en").eq("turno_id", t.id).order("creado_en"),
+    db.from("caja_movimientos").select("*").eq("turno_id", t.id).order("creado_en"),
     // ventas no-efectivo de los DOS locales en el período: un mismo cobro de MP puede ser del otro local
     db.from("ventas").select("*").eq("prueba", false) // las de la caja de prueba no compiten por los cobros reales
       .neq("medio_pago", "efectivo").gte("creada_en", minutos(t.abierta_en, -MINUTOS_DESPUES)).lte("creada_en", minutos(hasta, MINUTOS_ANTES)),
@@ -46,7 +51,9 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
   ]);
 
   const vs = (ventas ?? []).map((v) => ({ ...v, total: Number(v.total) })) as VentaTurno[];
-  const resumen = resumenTurno(Number(t.fondo_inicial), vs, (movs ?? []).map((m) => ({ tipo: m.tipo, monto: Number(m.monto) })) as MovimientoCaja[]);
+  // Los movimientos anulados se muestran tachados pero no cuentan
+  const movimientos = (movs ?? []) as MovimientoTurno[];
+  const resumen = resumenTurno(Number(t.fondo_inicial), vs, movimientos.filter((m) => !m.anulado).map((m) => ({ tipo: m.tipo, monto: Number(m.monto) })) as MovimientoCaja[]);
   const pagosCC = await pagosCCParaCruce(db, minutos(t.abierta_en, -MINUTOS_DESPUES), minutos(hasta, MINUTOS_ANTES));
   const cruce = cruzarPagos(
     [...((delPeriodo ?? []) as (VentaTurno & { local_id: number; terminal?: string | null })[]).filter((v) => !v.terminal?.startsWith("Aronium")).map((v) => ({ ...v, total: Number(v.total) })), ...pagosCC],
@@ -69,7 +76,7 @@ export async function calcularCierre(db: SupabaseClient, turnoId: string, refres
   return {
     turno: t,
     ventas: vs,
-    movimientos: movs ?? [],
+    movimientos,
     resumen,
     alertas: {
       ventasSinCobro: cruce.ventasSinCobro.filter((v) => idsTurno.has(v.id)),

@@ -175,10 +175,10 @@ export function CierreCaja() {
             <p className="border-b border-linea px-3 py-2 text-sm font-semibold">Retiros, gastos e ingresos del turno</p>
             <ul className="divide-y divide-linea text-sm">
               {datos.movimientos.map((m, i) => (
-                <li key={i} className="flex items-start justify-between gap-3 px-3 py-2">
+                <li key={i} className={`flex items-start justify-between gap-3 px-3 py-2 ${m.anulado ? "text-suave line-through" : ""}`}>
                   <span><b>{({ retiro: "Retiro", gasto: "Gasto", ingreso: "Ingreso" } as Record<string, string>)[m.tipo] ?? m.tipo}</b> · {hora(m.creado_en)}
-                    <span className="block text-suave">{m.motivo || "Sin detalle"}</span></span>
-                  <b className={`shrink-0 tabular-nums ${m.tipo === "ingreso" ? "text-green-800" : ""}`}>{m.tipo === "ingreso" ? "+" : "−"}{pesos(Number(m.monto))}</b>
+                    <span className="block text-suave">{m.motivo || "Sin detalle"}{m.anulado ? " · anulado" : ""}</span></span>
+                  <b className={`shrink-0 tabular-nums ${!m.anulado && m.tipo === "ingreso" ? "text-green-800" : ""}`}>{m.tipo === "ingreso" ? "+" : "−"}{pesos(Number(m.monto))}</b>
                 </li>
               ))}
             </ul>
