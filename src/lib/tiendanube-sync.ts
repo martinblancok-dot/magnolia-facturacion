@@ -2,6 +2,8 @@
 // - El sistema manda: nombre y categoría solo al crear; precio de lista y stock siempre.
 // - Fotos y descripción se cargan en Tiendanube y nunca se pisan.
 // - Stock online = el del local con más unidades, menos 1 de margen (si queda 1 sola, se publica 1).
+// - Modo catálogo (ajuste "tienda_modo_catalogo"): mientras está prendido se manda "sin control de stock",
+//   para mostrar los productos aunque el stock no esté contado. Se guarda como tn_stock = -1.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { type CredencialesTN, tn } from "./tiendanube";
 
@@ -23,6 +25,16 @@ export const CATEGORIAS_TIENDA = Object.entries(ARBOL_TIENDA).flatMap(([p, hijas
 export function stockOnline(cantidades: number[]): number {
   const max = Math.max(0, ...cantidades.map((c) => Math.floor(Number(c) || 0)));
   return max >= 2 ? max - 1 : max;
+}
+
+/** Valor guardado en tn_stock cuando se mandó "sin control de stock" (modo catálogo). */
+export const STOCK_LIBRE = -1;
+/** Lo que se le manda a Tiendanube: null = sin control de stock. */
+export const stockTN = (n: number): number | null => (n < 0 ? null : n);
+
+export async function leerModoCatalogo(db: SupabaseClient): Promise<boolean> {
+  const { data } = await db.from("ajustes").select("valor").eq("clave", "tienda_modo_catalogo").maybeSingle();
+  return data?.valor === "si";
 }
 
 /** Por el nombre del producto, para categorías del sistema que mezclan cosas (ej. "Termos/Botellas/Jarras"). */
@@ -180,15 +192,16 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
   if (r.error && /producto_variantes/.test(r.error.message)) r = await traer(base);
   if (r.error) throw new Error(r.error.message);
   const productos = (r.data ?? []) as unknown as FilaProducto[];
+  const catalogo = await leerModoCatalogo(db);
 
   // Qué hay que hacer con cada uno
   const tareas = productos.map((p) => {
     const quiere = p.publicar_web && p.activo;
     const precio = Math.round(Number(p.precio_lista) * 100) / 100;
-    const stock = stockOnline((p.stock ?? []).map((s) => Number(s.cantidad)));
+    const stock = catalogo ? STOCK_LIBRE : stockOnline((p.stock ?? []).map((s) => Number(s.cantidad)));
     const crear = quiere && !p.tn_producto_id;
     const visibilidad = !!p.tn_producto_id && (p.tn_publicado ?? true) !== quiere;
-    const plan = planColoresTN(p.producto_variantes ?? [], precio);
+    const plan = planColoresTN(p.producto_variantes ?? [], precio, catalogo);
     const conColores = plan.activos.length > 0;
     const variante = !!p.tn_producto_id && quiere && (conColores
       ? plan.cambios.length > 0
@@ -225,7 +238,7 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
             published: true,
             ...(catIds?.length ? { categories: catIds } : {}),
             attributes: [{ es: "Color" }],
-            variants: t.plan.activos.map((v) => ({ price: t.precio.toFixed(2), stock: v.stockOnline, sku: v.sku_variante, barcode: p.barcode, values: [{ es: v.color }] })),
+            variants: t.plan.activos.map((v) => ({ price: t.precio.toFixed(2), stock: stockTN(v.stockOnline), sku: v.sku_variante, barcode: p.barcode, values: [{ es: v.color }] })),
           },
         });
         for (const v of t.plan.activos) {
@@ -242,7 +255,7 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
             name: { es: p.nombre },
             published: true,
             ...(catIds?.length ? { categories: catIds } : {}),
-            variants: [{ price: t.precio.toFixed(2), stock: t.stock, sku: p.sku || p.barcode, barcode: p.barcode }],
+            variants: [{ price: t.precio.toFixed(2), stock: stockTN(t.stock), sku: p.sku || p.barcode, barcode: p.barcode }],
           },
         });
         Object.assign(cambios, { tn_producto_id: nuevo.id, tn_variante_id: nuevo.variants?.[0]?.id ?? null, tn_precio: t.precio, tn_stock: t.stock, tn_publicado: true });
@@ -258,7 +271,7 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
           Object.assign(cambios, { tn_variante_id: null, tn_precio: t.precio, tn_stock: t.stock });
           res.actualizados++;
         } else if (t.variante && p.tn_variante_id) {
-          await llamar(c, `/products/${p.tn_producto_id}/variants/${p.tn_variante_id}`, { method: "PUT", body: { price: t.precio.toFixed(2), stock: t.stock } });
+          await llamar(c, `/products/${p.tn_producto_id}/variants/${p.tn_variante_id}`, { method: "PUT", body: { price: t.precio.toFixed(2), stock: stockTN(t.stock) } });
           Object.assign(cambios, { tn_precio: t.precio, tn_stock: t.stock });
           res.actualizados++;
         }
@@ -278,9 +291,9 @@ export async function sincronizarTienda(db: SupabaseClient, c: CredencialesTN, o
 }
 
 /** Qué colores hay que crear o actualizar en la tienda. Los colores dados de baja quedan con stock 0 (no se borran). */
-export function planColoresTN(colores: FilaColor[], precio: number) {
+export function planColoresTN(colores: FilaColor[], precio: number, catalogo = false) {
   const activos = colores.filter((v) => v.activo).sort((a, b) => a.orden - b.orden || a.color.localeCompare(b.color))
-    .map((v) => ({ ...v, stockOnline: stockOnline((v.stock_variantes ?? []).map((s) => Number(s.cantidad))) }));
+    .map((v) => ({ ...v, stockOnline: catalogo ? STOCK_LIBRE : stockOnline((v.stock_variantes ?? []).map((s) => Number(s.cantidad))) }));
   const cambios = [
     ...activos.filter((v) => !v.tn_variante_id || Number(v.tn_precio) !== precio || Number(v.tn_stock) !== v.stockOnline),
     ...colores.filter((v) => !v.activo && v.tn_variante_id && Number(v.tn_stock) !== 0).map((v) => ({ ...v, stockOnline: 0 })),
@@ -295,7 +308,7 @@ async function actualizarColoresTN(db: SupabaseClient, c: CredencialesTN, p: Fil
   let reusar = !yaTieneColores ? p.tn_variante_id : null; // la variante única que tenía antes de tener colores
   if (!yaTieneColores) await llamar(c, ruta, { method: "PUT", body: { attributes: [{ es: "Color" }] } });
   for (const v of plan.cambios) {
-    const datos = { price: precio.toFixed(2), stock: v.stockOnline };
+    const datos = { price: precio.toFixed(2), stock: stockTN(v.stockOnline) };
     let id = v.tn_variante_id;
     if (id) {
       await llamar(c, `${ruta}/variants/${id}`, { method: "PUT", body: datos });

@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { guardarCategoriasTienda, marcarPedidoEntregado, revisarPedidosAhora, sincronizarTiendaAhora } from "../../acciones";
+import { apagarModoCatalogo, guardarCategoriasTienda, marcarPedidoEntregado, prenderModoCatalogo, revisarPedidosAhora, sincronizarTiendaAhora } from "../../acciones";
 import { NOMBRE_ESTADO, type EstadoPedido } from "@/lib/tiendanube-pedidos";
 import { BotonAccion, Formulario } from "../../componentes";
 import { ListaTienda, type FilaTienda } from "./lista";
 import { pesos } from "@/lib/formato";
 import { leerCredencialesTN } from "@/lib/tiendanube";
-import { CATEGORIAS_TIENDA, stockOnline, sugerirCategoria } from "@/lib/tiendanube-sync";
+import { CATEGORIAS_TIENDA, leerModoCatalogo, STOCK_LIBRE, stockOnline, sugerirCategoria } from "@/lib/tiendanube-sync";
 import { clienteServidor } from "@/lib/supabase/almacen";
 import { soloDuenio } from "@/lib/supabase/sesion";
 
@@ -18,6 +18,7 @@ export default async function TiendaOnline({ searchParams }: { searchParams: Pro
   const f = await searchParams;
   const db = clienteServidor();
   const cred = await leerCredencialesTN(db);
+  const catalogo = await leerModoCatalogo(db);
 
   // Categorías del sistema (para filtros y equivalencias)
   const { data: catsFilas } = await db.from("productos").select("categoria").eq("activo", true).not("categoria", "is", null).limit(20000);
@@ -44,6 +45,18 @@ export default async function TiendaOnline({ searchParams }: { searchParams: Pro
         <Link href="/tienda-online?ver=pedidos" className={`-mb-px border-b-2 px-1 pb-2 ${f.ver === "pedidos" ? "border-marca font-semibold" : "border-transparent text-suave"}`}>Pedidos</Link>
         <Link href="/tienda-online?ver=categorias" className={`-mb-px border-b-2 px-1 pb-2 ${f.ver === "categorias" ? "border-marca font-semibold" : "border-transparent text-suave"}`}>Categorías</Link>
       </nav>
+      {cred && (
+        <div className={`flex flex-wrap items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm ${catalogo ? "bg-amber-50 text-amber-900" : "bg-marca-claro"}`}>
+          <p>
+            {catalogo
+              ? <><b>Modo catálogo prendido.</b> Los productos se muestran sin control de stock (no dicen &quot;Sin stock&quot;). Podés cargar el stock tranquilo: no afecta a la tienda hasta que lo apagues.</>
+              : <><b>Modo catálogo apagado.</b> La tienda muestra el stock real de los locales.</>}
+          </p>
+          {catalogo
+            ? <BotonAccion accion={apagarModoCatalogo} texto="Apagar modo catálogo" borde />
+            : <BotonAccion accion={prenderModoCatalogo} texto="Prender modo catálogo" borde />}
+        </div>
+      )}
       {faltaMigracion && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">Falta correr la migración <b>0027_tiendanube.sql</b> en Supabase.</p>}
     </div>
   );
@@ -148,7 +161,7 @@ export default async function TiendaOnline({ searchParams }: { searchParams: Pro
   const filas: FilaTienda[] = (data ?? []).map((p) => {
     const st = (p.stock ?? []) as { local_id: number; cantidad: number }[];
     const local = (id: number) => Number(st.find((s) => s.local_id === id)?.cantidad ?? 0);
-    const online = stockOnline(st.map((s) => Number(s.cantidad)));
+    const online = catalogo ? STOCK_LIBRE : stockOnline(st.map((s) => Number(s.cantidad)));
     const pendiente = p.publicar_web !== !!p.tn_publicado || (p.publicar_web && (Number(p.tn_stock) !== online || Number(p.tn_precio) !== Number(p.precio_lista)));
     return {
       id: p.id, nombre: p.nombre, sku: p.sku, categoria: p.categoria, precio: pesos(Number(p.precio_lista)),

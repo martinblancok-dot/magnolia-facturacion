@@ -47,7 +47,7 @@ export function ListaTienda({ filas }: { filas: FilaTienda[] }) {
                 <td className="px-3 py-2 text-right tabular-nums">{f.precio}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{f.deco}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{f.beauty}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{f.online}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">{f.online < 0 ? "Libre" : f.online}</td>
                 <td className="px-3 py-2">
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={f.publicar} disabled={cargando} onChange={() => aplicar(!f.publicar, [f.id])} />
