@@ -36,3 +36,20 @@ describe("tienda online", () => {
     expect(Object.entries(ARBOL_TIENDA).find(([, h]) => h.includes("Botellas y jarras"))?.[0]).toBe("Mesa");
   });
 });
+
+describe("modo catálogo", () => {
+  it("manda sin control de stock y lo guarda como -1", async () => {
+    const { planColoresTN, stockTN, STOCK_LIBRE } = await import("@/lib/tiendanube-sync");
+    expect(stockTN(STOCK_LIBRE)).toBeNull();
+    expect(stockTN(0)).toBe(0);
+    expect(stockTN(5)).toBe(5);
+    const colores = [
+      { id: "a", color: "Rojo", sku_variante: "X-ROJ", activo: true, orden: 1, tn_variante_id: 10, tn_precio: 100, tn_stock: 0, stock_variantes: [{ local_id: 1, cantidad: 0 }] },
+    ];
+    const normal = planColoresTN(colores as never, 100);
+    expect(normal.cambios).toHaveLength(0);
+    const cat = planColoresTN(colores as never, 100, true);
+    expect(cat.activos[0].stockOnline).toBe(STOCK_LIBRE);
+    expect(cat.cambios).toHaveLength(1);
+  });
+});

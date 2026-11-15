@@ -834,6 +834,21 @@ export async function publicarEnTienda(ids: string[], publicar: boolean): Promis
   return { ok: true, texto: `${validos.length} producto${validos.length === 1 ? "" : "s"} ${publicar ? "marcado(s) para publicar" : "marcado(s) para ocultar"}. Tocá "Sincronizar ahora" o esperá unos minutos.` };
 }
 
+async function guardarModoCatalogo(prender: boolean): Promise<Mensaje> {
+  await soloDuenio();
+  const { error } = await clienteServidor().from("ajustes").upsert({ clave: "tienda_modo_catalogo", valor: prender ? "si" : "no", actualizado_en: new Date().toISOString() });
+  if (error) return { ok: false, texto: error.message };
+  revalidatePath("/tienda-online");
+  return {
+    ok: true,
+    texto: prender
+      ? "Modo catálogo prendido: los productos se van a ver en la tienda sin control de stock. Se actualizan solos en los próximos minutos (o tocá \"Sincronizar ahora\")."
+      : "Modo catálogo apagado: la tienda vuelve a mostrar el stock real. Se actualiza en los próximos minutos (o tocá \"Sincronizar ahora\").",
+  };
+}
+export async function prenderModoCatalogo(): Promise<Mensaje> { return guardarModoCatalogo(true); }
+export async function apagarModoCatalogo(): Promise<Mensaje> { return guardarModoCatalogo(false); }
+
 export async function sincronizarTiendaAhora(): Promise<Mensaje> {
   await soloDuenio();
   const db = clienteServidor();
